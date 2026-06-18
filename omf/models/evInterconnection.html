@@ -49,31 +49,43 @@
 		tr:nth-child(even) {
 			background-color: #e6e6e6;
 		}
+
+		/* Make table headers sticky when inside a scrolling .tableContainer */
+		.tableContainer {
+			position: relative;
+		}
+		.tableContainer thead th,
+		.tableContainer th {
+			position: -webkit-sticky; /* Safari */
+			position: sticky;
+			top: 0;
+			z-index: 2;
+			background-color: #8c8c8c; /* ensure header covers content when sticking */
+		}
 	</style>
 	<script src="{{pathPrefix}}/static/d3.v3.js"></script>
-	<!-- DataTables -->
-	<link rel="stylesheet" href="https://cdn.datatables.net/1.10.19/css/jquery.dataTables.min.css">
-	<script src="https://cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js"></script>
 	<script type="text/javascript">
 		function openTab(evt, tabName, tabSet) {
-			var i, tabContent, tabLinks;
-
-			// Get all elements with class="tabContent" for the given table and hide them
-
-			$(".tabContent" + tabSet).hide();
-			// Get all elements with class="tabLinks" and remove the class "active"
+			var i, tabLinks;
+			// Hide all tab contents for the given set
+			var tabContents = document.querySelectorAll(".tabContent" + tabSet);
+			for (i = 0; i < tabContents.length; i++) {
+				tabContents[i].style.display = "none";
+			}
+			// Remove active class from all tab links in the set
 			tabLinks = document.getElementsByClassName("tabLinks" + tabSet);
 			for (i = 0; i < tabLinks.length; i++) {
 				tabLinks[i].className = tabLinks[i].className.replace(" active", "");
 			}
-			// Show the current tab, and add an "active" class to the button that opened the tab
-			$("." + tabName).show();
-			//gebi(tabName).style.display = "block";
+			// Show the selected tab content(s)
+			var showEls = document.getElementsByClassName(tabName);
+			for (i = 0; i < showEls.length; i++) {
+				showEls[i].style.display = "block";
+			}
+			// Mark the clicked tab link active
 			evt.currentTarget.className += " active";
 		}
-		$(document).ready(function() {
-			console.log($('#inverterOutputs'));
-		$('.dt').DataTable({ 'paging': false});
+		document.addEventListener('DOMContentLoaded', function() {
 		});
 	</script>
 </head>

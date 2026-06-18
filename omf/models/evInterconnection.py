@@ -2,14 +2,22 @@
 Electric Vehicle Interconnection Analysis
 """
 
-import json, os, shutil, csv, warnings, base64, platform
+# Python Imports
+import json
+import os
+import shutil
+import csv
+import warnings
+import base64
+import platform
 from os.path import join as pJoin
 from random import randint, uniform
 import numpy as np
 
+# Matplotlib Imports
 import matplotlib
 from matplotlib import pyplot as plt
-#plt.style.use('seaborn')
+# plt.style.use('seaborn')
 
 # dateutil imports
 from dateutil import parser
@@ -27,6 +35,7 @@ modelName, template = __neoMetaModel__.metadata(__file__)
 tooltip = "Injects faults in to circuits and measures fault currents, voltages, and protective device response."
 hidden = False
 
+
 def work(modelDir, inputDict):
 	''' Run the model in its directory. '''
 	outData = {}
@@ -35,7 +44,7 @@ def work(modelDir, inputDict):
 	inputDict["feederName1"] = feederName
 	# Create voltage drop plot.
 	# print "*DEBUG: feederName:", feederName
-	with open(pJoin(modelDir,feederName + '.omd')) as f:
+	with open(pJoin(modelDir, feederName + '.omd')) as f:
 		omd = json.load(f)
 	if inputDict.get("layoutAlgorithm", "geospatial") == "geospatial":
 		neato = False
@@ -150,71 +159,72 @@ def work(modelDir, inputDict):
 
 	# print loadShapeValue
 	
-	#calculate and display EV Charging Demand image, carpet plot image of 8760 load shapes
+	# calculate and display EV Charging Demand image
+	# carpet plot image of 8760 load shapes
 	maxLoadValue, demandImg, carpetPlotImg, hourlyConValue, combinedLoadShapeValue = plotEVShape(
 		modelDir,
-		numVehicles = numVehiclesValue,
-		chargeRate = chargeRateValue, 
-		batterySize = batterySizeValue, 
-		startHour = startHourValue, 
-		endHour = endHourValue, 
-		chargeLimit = chargeLimitValue, 
-		minCharge = minChargeValue, 
-		maxCharge = maxChargeValue, 
-		loadShape = loadShapeValue)
+		numVehicles=numVehiclesValue,
+		chargeRate=chargeRateValue,
+		batterySize=batterySizeValue,
+		startHour=startHourValue,
+		endHour=endHourValue,
+		chargeLimit=chargeLimitValue,
+		minCharge=minChargeValue,
+		maxCharge=maxChargeValue,
+		loadShape=loadShapeValue)
 	demandImg.savefig(pJoin(modelDir, "evChargingDemand.png"))
 	with open(pJoin(modelDir, "evChargingDemand.png"),"rb") as evFile:
 		outData["evChargingDemand"] = base64.standard_b64encode(evFile.read()).decode('ascii')
 	carpetPlotImg.savefig(pJoin(modelDir, "carpetPlot.png"))
 	with open(pJoin(modelDir, "carpetPlot.png"),"rb") as cpFile:
 		outData["carpetPlot"] = base64.standard_b64encode(cpFile.read()).decode('ascii')
-	#run and display fuel cost calculation
+	# run and display fuel cost calculation
 	fuelCostHtml = fuelCostCalc(
-		numVehicles = numVehiclesValue,
-		batterySize = batterySizeValue,
-		efficiency = efficiencyValue,
-		energyCost = energyCostValue,
-		gasEfficiency = gasEfficiencyValue,
-		gasCost = gasCostValue,
-		workload = workloadValue)
+		numVehicles=numVehiclesValue,
+		batterySize=batterySizeValue,
+		efficiency=efficiencyValue,
+		energyCost=energyCostValue,
+		gasEfficiency=gasEfficiencyValue,
+		gasCost=gasCostValue,
+		workload=workloadValue)
 	with open(pJoin(modelDir, "fuelCostCalc.html"), "w") as fuelFile:
 		fuelFile.write(fuelCostHtml)
 	outData["fuelCostCalcHtml"] = fuelCostHtml
 
-	#run and display voltage drop image and protective device status table
+	# run and display voltage drop image and protective device status table
 	voltPlotChart = voltageDrop.drawPlot(
-		pJoin(modelDir,feederName + ".omd"),
-		neatoLayout = neato,
-		edgeCol = "PercentOfRating",
-		nodeCol = "perUnitVoltage",
-		nodeLabs = None,
-		edgeLabs = None,
-		customColormap = False,
-		scaleMin = .9,
-		scaleMax = 1.1,
-		faultLoc = None,
-		faultType = None,
-		rezSqIn = 225,
-		simTime = "2000-01-01 0:00:00",
-		workDir = modelDir)
+		pJoin(modelDir, feederName + ".omd"),
+		neatoLayout=neato,
+		edgeCol="PercentOfRating",
+		nodeCol="perUnitVoltage",
+		nodeLabs=None,
+		edgeLabs=None,
+		customColormap=False,
+		scaleMin=.9,
+		scaleMax=1.1,
+		faultLoc=None,
+		faultType=None,
+		rezSqIn=225,
+		simTime="2000-01-01 0:00:00",
+		workDir=modelDir)
 	voltPlotChart.savefig(pJoin(modelDir, "output.png"))
-	with open(pJoin(modelDir, "output.png"),"rb") as inFile:
+	with open(pJoin(modelDir, "output.png"), "rb") as inFile:
 		outData["voltageDrop"] = base64.standard_b64encode(inFile.read()).decode('ascii')
 	protDevTable = faultAnalysis.drawTable(
-		pJoin(modelDir,feederName + ".omd"),
-		workDir = modelDir)
+		pJoin(modelDir, feederName + ".omd"),
+		workDir=modelDir)
 	with open(pJoin(modelDir, "statusTable.html"), "w") as tabFile:
 		tabFile.write(protDevTable)
 	outData['protDevTableHtml'] = protDevTable
 
 	def voltplot_protdev(max_value=None, load_name=None):
 		# warnings.filterwarnings("ignore")
-		with open(pJoin(modelDir,feederName + ".omd")) as f:
+		with open(pJoin(modelDir, feederName + ".omd")) as f:
 			omd = json.load(f)
 		tree = omd.get('tree', {})
-		attachments = omd.get('attachments',[])
+		attachments = omd.get('attachments', [])
 
-		#check to see that maximum load value is passed in
+		# check to see that maximum load value is passed in
 		maxValue = max_value
 		loadName = load_name
 		# maxValue = maxLoadValue
@@ -224,46 +234,46 @@ def work(modelDir, inputDict):
 			maxValueWatts = maxValue * 1000
 			# print "maxValue = " + str(maxValue)
 			# print "maxValueWatts = " + str(maxValueWatts)
-			#check to see that loadName is specified
+			# check to see that loadName is specified
 			if loadName != None:
 				# Map to speed up name lookups.
-				nameToIndex = {tree[key].get('name',''):key for key in tree.keys()}
-				#check if the specified load name is in the tree
+				nameToIndex = {tree[key].get('name', ''): key for key in tree.keys()}
+				#ccheck if the specified load name is in the tree
 				if loadName in nameToIndex:
 					key = nameToIndex[loadName]
-					obtype = tree[key].get("object","")
+					obtype = tree[key].get("object", "")
 					if obtype in ['triplex_node', 'triplex_load']:
 						tree[key]['power_12_real'] = maxValueWatts
-						#tree[key]['power_12'] = maxValueWatts
+						# tree[key]['power_12'] = maxValueWatts
 					elif obtype in ['load', 'pqload']:
-						#tree[key]['constant_power_A_real'] = maxValueWatts
+						# tree[key]['constant_power_A_real'] = maxValueWatts
 						tree[key]['constant_power_A_real'] = maxValueWatts/3
 						tree[key]['constant_power_B_real'] = maxValueWatts/3
 						tree[key]['constant_power_C_real'] = maxValueWatts/3
 					else:
 						raise Exception('Specified load name does not correspond to a load object. Make sure the object is of the following types: load, pqload, triplex_node, triplex_meter.')
-					#run gridlab-d simulation with specified load set to max value
+					# run gridlab-d simulation with specified load set to max value
 					omd['tree'] = tree
 					feederName2 = "Olin Barre Fault - evInterconnection.omd"
 					with open(modelDir + '/' + feederName2, "w+") as write_file:
 						json.dump(omd, write_file)
 
 					tempVoltPlotChart = voltageDrop.drawPlot(
-						pJoin(modelDir,feederName2),
-						neatoLayout = neato,
-						edgeCol = "PercentOfRating",
-						nodeCol = "perUnitVoltage",
-						nodeLabs = "Load",
-						edgeLabs = None,
-						customColormap = False,
-						scaleMin = .9,
-						scaleMax = 1.1,
-						faultLoc = None,
-						faultType = None,
-						rezSqIn = 225,
-						simTime = "2000-01-01 0:00:00",
-						workDir = modelDir,
-						loadLoc = loadName)
+						pJoin(modelDir, feederName2),
+						neatoLayout=neato,
+						edgeCol="PercentOfRating",
+						nodeCol="perUnitVoltage",
+						nodeLabs="Load",
+						edgeLabs=None,
+						customColormap=False,
+						scaleMin=.9,
+						scaleMax=1.1,
+						faultLoc=None,
+						faultType=None,
+						rezSqIn=225,
+						simTime="2000-01-01 0:00:00",
+						workDir=modelDir,
+						loadLoc=loadName)
 					# loadVoltPlotChart.savefig(pJoin(modelDir, "loadVoltPlot.png"))
 					# with open(pJoin(modelDir, "loadStatusTable.html"), "w") as tabFile:
 					# 	tabFile.write(loadProtDevTable)
@@ -271,29 +281,29 @@ def work(modelDir, inputDict):
 					# with open(pJoin(modelDir, "loadVoltPlot.png"),"rb") as inFile:
 					# 	outData["loadVoltageDrop"] = inFile.read().encode("base64")
 					tempProtDevTable = faultAnalysis.drawTable(
-						pJoin(modelDir,feederName2),
-						workDir = modelDir)
+						pJoin(modelDir, feederName2),
+						workDir=modelDir)
 					return tempVoltPlotChart, tempProtDevTable
 				else:
 					print("Didn't find the gridlab object named " + loadName)
-					#raise an exception if loadName isn't in the tree
+					# raise an exception if loadName isn't in the tree
 					raise Exception('Specified load name does not correspond to an object in the tree.')
 			else:
 				print("loadName is None")
-				#raise an exception if loadName isn't specified
+				# raise an exception if loadName isn't specified
 				raise Exception('Invalid request. Load Name must be specified.')
 		else:
 			print("maxValue is None")
-			#raise an exception if maximum load value is not being passed in
+			# raise an exception if maximum load value is not being passed in
 			raise Exception('Error retrieving maximum load value from load shape.')
 
-	#run and display voltage drop image and protective device status table with updated glm where the node with the specified load name is changed to the max value
+	# run and display voltage drop image and protective device status table with updated glm where the node with the specified load name is changed to the max value
 	loadVoltPlotChart, loadProtDevTable = voltplot_protdev(max_value=maxLoadValue, load_name=loadNameValue)
 	loadVoltPlotChart.savefig(pJoin(modelDir, "loadVoltPlot.png"))
 	with open(pJoin(modelDir, "loadStatusTable.html"), "w") as tabFile:
 		tabFile.write(loadProtDevTable)
 	outData['loadProtDevTableHtml'] = loadProtDevTable
-	with open(pJoin(modelDir, "loadVoltPlot.png"),"rb") as inFile:
+	with open(pJoin(modelDir, "loadVoltPlot.png"), "rb") as inFile:
 		outData["loadVoltageDrop"] = base64.standard_b64encode(inFile.read()).decode('ascii')
 	# Create the input JSON file for REopt
 	scenario = {
@@ -302,13 +312,13 @@ def work(modelDir, inputDict):
 			"longitude": longitudeValue,
 		},
 		"ElectricLoad": {
-			"loads_kw": combinedLoadShapeValue,		#8760 value list
-			"year": yearValue 										#MUST BE THE CORRECT YEAR CORRELATING TO loads_kw!!
+			"loads_kw": combinedLoadShapeValue,		# 8760 value list
+			"year": yearValue 										# MUST BE THE CORRECT YEAR CORRELATING TO loads_kw!!
 		},
 		"ElectricTariff": {
 			"urdb_rate_name": "custom",
-			"blended_annual_energy_rate": energyCostValue, # "blended_annual_rates_us_dollars_per_kwh" $/kWh.
-			"blended_annual_demand_rate": demandCostValue # "blended_annual_demand_charges_us_dollars_per_kw" $/kW/month
+			"blended_annual_energy_rate": energyCostValue,  # "blended_annual_rates_us_dollars_per_kwh" $/kWh.
+			"blended_annual_demand_rate": demandCostValue  # "blended_annual_demand_charges_us_dollars_per_kw" $/kW/month
 		}
 	}
 	with open(pJoin(modelDir, "Scenario_test_POST.json"), "w") as jsonFile:
@@ -316,14 +326,14 @@ def work(modelDir, inputDict):
 	# Run REopt API script
 	reopt_jl.run_reopt_jl(modelDir, "Scenario_test_POST.json", run_with_sysimage=False)
 
-	#read results from json generated from REopt
+	# read results from json generated from REopt
 	with open(pJoin(modelDir, "results.json"), "r") as REoptFile:
 		REopt_output = json.load(REoptFile)
-		#print REopt_output
+		# print REopt_output
 	print(pJoin(modelDir, "results.json"))
 	# ********* If testing, set test_results_on_fail to True **********
 	test_results_on_fail = False
-	#check to see if REopt worked correctly. If not, use a cached results file for testing or raise exception. 
+	# check to see if REopt worked correctly. If not, use a cached results file for testing or raise exception.
 	if REopt_output["status"] != "optimal":
 		if test_results_on_fail:
 			print("Continuing simulation with cached results in dummyResults.json...")
@@ -333,7 +343,7 @@ def work(modelDir, inputDict):
 			raise Exception("Error: REopt results generated are invalid")
 		
 
-	#find the values for energy cost with and without microgrid
+	# find the values for energy cost with and without microgrid
 	# REopt_ev_energy_cost = REopt_output["outputs"]["Scenario"]["Site"]["ElectricTariff"]["year_one_bill_bau_us_dollars"] # 2026-03 commented
 	# REopt_opt_energy_cost =	REopt_output["outputs"]["Scenario"]["Site"]["ElectricTariff"]["year_one_bill_us_dollars"]
 	REopt_ev_energy_cost = REopt_output["ElectricTariff"]["year_one_bill_before_tax_bau"]
@@ -341,45 +351,45 @@ def work(modelDir, inputDict):
 	# REopt_ev_energy_cost = 100000
 	# REopt_opt_energy_cost =	90000
 
-	#Create the building energy cost table
+	# Create the building energy cost table
 	energyCostHtml = energyCostCalc(
-		max_bau_load_shape = max(loadShapeValue),
-		sum_bau_load_shape = sum(loadShapeValue),
-		demand_charge = demandCostValue,
-		energy_charge = energyCostValue,
-		REopt_EV_output = REopt_ev_energy_cost,
-		REopt_opt_output = REopt_opt_energy_cost)
+		max_bau_load_shape=max(loadShapeValue),
+		sum_bau_load_shape=sum(loadShapeValue),
+		demand_charge=demandCostValue,
+		energy_charge=energyCostValue,
+		REopt_EV_output=REopt_ev_energy_cost,
+		REopt_opt_output=REopt_opt_energy_cost)
 	with open(pJoin(modelDir, "energyCostCalc.html"), "w") as energyFile:
 		energyFile.write(energyCostHtml)
 	outData["energyCostCalcHtml"] = energyCostHtml
 
-	#get REopt's optimized load shape value list
+	# get REopt's optimized load shape value list
 	# REoptLoadShape = REopt_output["outputs"]["Scenario"]["Site"]["LoadProfile"]["year_one_electric_load_series_kw"]
 	# REoptLoadShape = REopt_output["outputs"]["Scenario"]["Site"]["ElectricTariff"]["year_one_to_load_series_kw"] - 2026-03 commented
 	REoptLoadShape = REopt_output["ElectricUtility"]["electric_to_load_series_kw"]
 	
-
-	#Create the maxLoadShape image and REopt carpet plot
+	# Create the maxLoadShape image and REopt carpet plot
 	maxLoadShapeImg, REoptCarpetPlotImg = plotMaxLoadShape(
-		loadShape = loadShapeValue,
-		combined_load = combinedLoadShapeValue,
-		hourly_con = hourlyConValue,
-		REopt_load = REoptLoadShape)
+		loadShape=loadShapeValue,
+		combined_load=combinedLoadShapeValue,
+		hourly_con=hourlyConValue,
+		REopt_load=REoptLoadShape)
 	maxLoadShapeImg.savefig(pJoin(modelDir, "maxLoadShape.png"))
-	with open(pJoin(modelDir, "maxLoadShape.png"),"rb") as evFile:
+	with open(pJoin(modelDir, "maxLoadShape.png"), "rb") as evFile:
 		outData["maxLoadShape"] = base64.standard_b64encode(evFile.read()).decode('ascii')
 	REoptCarpetPlotImg.savefig(pJoin(modelDir, "REoptCarpetPlot.png"))
-	with open(pJoin(modelDir, "REoptCarpetPlot.png"),"rb") as cpFile:
+	with open(pJoin(modelDir, "REoptCarpetPlot.png"), "rb") as cpFile:
 		outData["REoptCarpetPlot"] = base64.standard_b64encode(cpFile.read()).decode('ascii')
-	#Create 3rd powerflow run with maximum load from new ReOpt output load shape
+	# Create 3rd powerflow run with maximum load from new ReOpt output load shape
 	REoptVoltPlotChart, REoptProtDevTable = voltplot_protdev(max_value=max(REoptLoadShape), load_name=loadNameValue)
 	REoptVoltPlotChart.savefig(pJoin(modelDir, "REoptVoltPlot.png"))
 	with open(pJoin(modelDir, "REoptStatusTable.html"), "w") as tabFile:
 		tabFile.write(REoptProtDevTable)
 	outData['REoptProtDevTableHtml'] = REoptProtDevTable
-	with open(pJoin(modelDir, "REoptVoltPlot.png"),"rb") as inFile:
+	with open(pJoin(modelDir, "REoptVoltPlot.png"), "rb") as inFile:
 		outData["REoptVoltageDrop"] = base64.standard_b64encode(inFile.read()).decode('ascii')
 	return outData
+
 
 def new(modelDir):
 	''' Create a new instance of this model. Returns true on success, false on failure. '''
@@ -391,28 +401,28 @@ def new(modelDir):
 		"modelType": modelName,
 		"runTime": "",
 		"layoutAlgorithm": "geospatial",
-		"batterySize" : "50",
-		"chargeRate" : "40",
-		"efficiency" : "0.5",
-		"gasEfficiency" : "8",
-		"numVehicles" : "50",
-		"energyCost" : "0.12",
-		"startHour" : "8",
-		"endHour" : "10",
-		"chargeLimit" : "150",
-		"minCharge" : "10",
-		"maxCharge" : "50",
-		"gasCost" : "2.70",
-		"workload" : "40",
-		"loadShape" : load_shape,
-		"fileName" : fName,
-		"loadName" : "62474211556",
-		"rezSqIn" : "400",
-		"simTime" : '2000-01-01 0:00:00',
-		"latitude" : '39.7817',
-		"longitude" : '-89.6501',
-		"year" : '2001',
-		"demandCost" : '0.1'
+		"batterySize": "50",
+		"chargeRate": "40",
+		"efficiency": "0.5",
+		"gasEfficiency": "8",
+		"numVehicles": "50",
+		"energyCost": "0.12",
+		"startHour": "8",
+		"endHour": "10",
+		"chargeLimit": "150",
+		"minCharge": "10",
+		"maxCharge": "50",
+		"gasCost": "2.70",
+		"workload": "40",
+		"loadShape": load_shape,
+		"fileName": fName,
+		"loadName": "62474211556",
+		"rezSqIn": "400",
+		"simTime": '2000-01-01 0:00:00',
+		"latitude": '39.7817',
+		"longitude": '-89.6501',
+		"year": '2001',
+		"demandCost": '0.1'
 	}
 	creationCode = __neoMetaModel__.new(modelDir, defaultInputs)
 	try:
@@ -420,6 +430,7 @@ def new(modelDir):
 	except:
 		return False
 	return creationCode
+
 
 def _testingPlot():
 	"""
@@ -440,6 +451,7 @@ def _testingPlot():
 	chart.savefig(PREFIX + "YO_WHATS_GOING_ON.png")
 	# plt.show()
 
+
 def plotMaxLoadShape(loadShape=None, combined_load=None, hourly_con=None, REopt_load=None):
 	"""
 	Create a plot or display artifact for max load shape results.
@@ -447,24 +459,24 @@ def plotMaxLoadShape(loadShape=None, combined_load=None, hourly_con=None, REopt_
 	base_shape = loadShape
 	com_shape_REopt = REopt_load
 
-	#find the maximum combined load value
+	# find the maximum combined load value
 	max_val = max(combined_load)
-	#find that value's index
+	# find that value's index
 	max_index = combined_load.index(max_val)
 
-	#find the day that the max load value occurs
+	# find the day that the max load value occurs
 	max_day_val = int((max_index)/24)
-	max_hour_val = (max_index)%24
+	max_hour_val = (max_index) % 24
 	day_shape = base_shape[max_day_val*24:max_day_val*24+24]
 
-	#find the maximum REopt load value
+	# find the maximum REopt load value
 	max_val_REopt = max(com_shape_REopt)
-	#find that value's index
+	# find that value's index
 	max_index_REopt = com_shape_REopt.index(max_val_REopt)
 
-	#find the day that the max REopt load value occurs
+	# find the day that the max REopt load value occurs
 	max_day_val_REopt = int((max_index_REopt)/24)
-	max_hour_val_REopt = (max_index_REopt)%24
+	max_hour_val_REopt = (max_index_REopt) % 24
 	day_shape_REopt = com_shape_REopt[max_day_val_REopt*24:max_day_val_REopt*24+24]
 
 	# print "max_val: " + str(max_val)
@@ -485,7 +497,7 @@ def plotMaxLoadShape(loadShape=None, combined_load=None, hourly_con=None, REopt_
 		plt.close()
 		return maxLoadShapeImg
 
-	#find the base shape of the REopt loads by subtracting the values of hourly_con
+	# find the base shape of the REopt loads by subtracting the values of hourly_con
 	base_shape_REopt = []
 	for i in range(8760):
 		base_load = com_shape_REopt[i] - hourly_con[i % 24]
@@ -513,6 +525,7 @@ def plotMaxLoadShape(loadShape=None, combined_load=None, hourly_con=None, REopt_
 
 
 	return maxLoadShape(day_shape, hourly_con, day_shape_REopt), carpet_plot(base_shape_REopt, hourly_con)
+
 
 def plotEVShape(modelDir, numVehicles=None, chargeRate=None, batterySize=None, startHour=None, endHour=None, chargeLimit=None, minCharge=None, maxCharge=None, loadShape=None, rezSqIn=None):
 	"""
