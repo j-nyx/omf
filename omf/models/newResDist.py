@@ -72,16 +72,16 @@ def mitigationAnalysis(mitigationOptions, dssCircuitPath, inputDict, outage, pri
 	if target_obj == None:
 		raise Exception(f"Could not find line object for component_name '{outage.get('component_name')}' in mitigation circuit.")
 
-	for mitigation in mitigationOptions:
-		mit_id = mitigation.get('id')
+	# for mitigation in mitigationOptions:
+	# 	mit_id = mitigation.get('id')
 
-		length_val = target_obj.get('length')
-		units_val = target_obj.get('units', 'ft')
+	# 	length_val = target_obj.get('length')
+	# 	units_val = target_obj.get('units', 'ft')
 
-		# Jenny Stopped here
+	# 	# Jenny Stopped here
 
-		# results.append({'mitigation_id': mit_id, 'component': outage.get('component_name'), 'length_ft': length_ft, 'unit': units_val, 'price_per_ft': price, 'cost': cost})
-		# total += cost
+	# 	# results.append({'mitigation_id': mit_id, 'component': outage.get('component_name'), 'length_ft': length_ft, 'unit': units_val, 'price_per_ft': price, 'cost': cost})
+	# 	# total += cost
 
 	return {'items': results, 'total_cost': total}
 
