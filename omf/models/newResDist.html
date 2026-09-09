@@ -1,0 +1,106 @@
+<head>
+	{{ omfHeaders }}
+		<!--  Macro for direct file upload usage:
+		file_upload('fileInputID', 'userFileDisplayNameID', 'userFileDisplayNameID')
+		line 1: input for the actual file. There should be no value in inputDict that matches this one.
+		line 2: button for file upload, thats it.
+		line 3: the name of the file the user is using/inputting in. We wanna save this for display. Originally its set as the default.
+		line 4: This is hidden. This is the name of the file we want always = .csv name <- default noutageng convention 
+	-->
+	{% macro file_upload(fileInputID, userFileDisplayNameID, dataFileNameID) -%}
+    <input type="file" id="{{fileInputID}}" name="{{ allInputDataDict[dataFileNameID] }}" accept=".csv" class="fileButton" onchange="updateFileNameDisplay('{{fileInputID}}', '{{userFileDisplayNameID}}', '{{dataFileNameID}}')" style="display:none"><br>
+    <label for="{{fileInputID}}" class="fileButton">Choose File</label>
+    <input id="{{userFileDisplayNameID}}" name="{{userFileDisplayNameID}}" value="{{ allInputDataDict[userFileDisplayNameID] }}" readonly class="uploadFileName">
+    <input id="{{dataFileNameID}}" name= {{dataFileNameID}} type="hidden" value="{{ allInputDataDict[dataFileNameID] }}">
+	{% endmacro %}
+</head>
+<body>
+	{{ omfModelTitle }}
+	<p class="reportTitle">Model Input</p>
+	<div id="input" class="content">
+		<form name="inputForm" action="/runModel/" onsubmit="event.preventDefault(); return isFormValid();" method="post">
+			<!-- Required Inputs -->
+			<div class="shortInput">
+				<label>Model Type <a href="/docs/Dev-~-How-to-Create-Your-First-Model-Type#start-with-the-modelskeleton" target="_blank">Help?</a></label>
+				<input type="text" id="modelType" name="modelType" value="{{modelName}}" readonly/>
+			</div>
+			<div class="shortInput">
+				<label>Model Name</label>
+				<input type="text" id="modelName" name="modelName" value="{{allInputDataDict.modelName}}"pattern="^[\w\s\d\.-]+$" required="required">
+			</div>
+			<div class="shortInput">
+				<label>User</label>
+				<input type="text" id="user" name="user" value="{{allInputDataDict.user}}"readonly/>
+			</div>
+			<div class="shortInput">
+				<label>Created</label>
+				<input type="text" id="created" name="created" value="{{allInputDataDict.created}}"readonly/>
+			</div>
+			<div class="shortInput">
+				<label>Run Time</label>
+				<input type="text" id="runTime" name="runTime" value="{{allInputDataDict.runTime}}"readonly/>
+			</div>
+			<!-- Model Specific Inputs -->
+			<div class="wideInput">
+				<p class="inputSectionHeader">Simulation Specs</p>
+			</div>
+			<hr>
+			<div class="shortInput">
+				<label>Feeder</label>
+				<button id="feederButton" type="button" onclick="javascript:editFeeder(allInputData.modelName,1);" style="display:block;width:125px;">Open Editor</button>
+				<input type="hidden" id="feederName1" name="feederName1" value="{{allInputDataDict.feederName1}}"> <!--HACK:pass feeder name back and forth to backend.-->
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">Outage Data Input File <span class="classic">Upload a .csv file of outage data. Format can be found in the wiki page</span></label>
+				<div>{{ file_upload('outageDataFile', 'outageUIDisplay', 'outageDataFileName') }}</div>
+			</div>
+			 <div class="shortInput">
+				<label class="tooltip">Critical Loads<span class="classic">Load IDs that indicate which loads are deemed as critical.</span></label>
+				<input type="text" id="criticalLoads" name="criticalLoads" value="{{allInputDataDict.criticalLoads}}" pattern="^(|([\w\d_-]+)(,[\w\d_-]+)*)$">
+			</div>
+			<div class="wideInput">
+				<p class="inputSectionHeader">Financial Specs</p>
+			</div>
+			<hr>
+			<div class="shortInput">
+				<label class="tooltip">Undergrounding Line Unit Cost ($/ft)<span class="classic">The cost of moving a line underground in units $/ft.  Insert an integer or decimal value.</span></label>
+				<input type="text" id="undergroundLineCost" name="undergroundLineCost" value="{{allInputDataDict.undergroundLineCost}}" pattern="^\d+\.?\d*?$" onkeypress="blankOutConnectedElement('lineFixedCost')">
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">Recloser Cost ($)<span class="classic">The cost of adding a recloser.  Insert an integer or decimal value.</span></label>
+				<input type="text" id="recloserCost" name="recloserCost" value="{{allInputDataDict.recloserCost}}" pattern="^\d+\.?\d*?$">
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">Vegetation Clearance Cost ($/ft)<span class="classic">The cost of vegetation clearance in $/ft.  Insert an integer or decimal value.</span></label>
+				<input type="text" id="vegetationClearanceCost" name="vegetationClearanceCost" value="{{allInputDataDict.vegetationClearanceCost}}" pattern="^\d+\.?\d*?$" onkeypress="blankOutConnectedElement('hardeningFixedCost')">
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">DG Unit Cost ($/MW)<span class="classic">The cost of adding distributed generation to a generator in $/ft.  Insert an integer or decimal value.</span></label>
+				<input type="text" id="dgUnitCost" name="dgUnitCost" value="{{allInputDataDict.dgUnitCost}}" pattern="^\d+\.?\d*?$" onkeypress="blankOutConnectedElement('dgFixedCost')">
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">Max DG Per Generator (MW)<span class="classic">The maximum DG capacity that a generator supports in MW.  Insert an integer or decimal value.</span></label>
+				<input type="text" id="maxDGPerGenerator" name="maxDGPerGenerator" value="{{allInputDataDict.maxDGPerGenerator}}" pattern="^\d+\.?\d*?$">
+			</div>
+			{{ omfModelButtons }}
+		</form>
+	</div>
+	{{ omfRunDebugBlock }}
+	{% if modelStatus == 'finished' %}
+	<div>
+			<p class="reportTitle" style="page-break-before:always">Hosting Capacity Map</p>
+		<div id="hostingCapacityMap" class="tightContent"></div>
+		<script>
+			var mapContent = allOutputData["hostingCapacityMap"]
+			var iframe = document.createElement('iframe');
+			iframe.style = 'width:1000px; height:800px; border-radius:8px;'
+			document.getElementById('hostingCapacityMap').appendChild(iframe);
+			iframe.contentWindow.document.open();
+			iframe.contentWindow.document.write(mapContent);
+			iframe.contentWindow.document.close();
+		</script>
+	</div>
+		{{ rawOutputFiles }}
+	</div>
+	{% endif %}
+</body>
