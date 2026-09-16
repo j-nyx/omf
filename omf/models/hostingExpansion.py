@@ -50,6 +50,149 @@ def checkCircuitSolar(modelDir, inputDict: dict):
 	return returningKW
 
 
+def processOptimalUpgrades(results: dict) -> dict:
+	'''
+	Turns the decaf.optimal_upgrades result dict into tables and a figure for the HTML template.
+	'''
+	outData = {}
+	upgrades = results.get("upgrades", []) or []
+	baseline = results.get("baseline_hc_mw")
+	target = results.get("target_hc_mw")
+	postUpgrade = results.get("post_upgrade_hc_mw")
+	released = results.get("released_hc_mw")
+	totalCost = results.get("total_cost_usd")
+	runtime = results.get("runtime_sec")
+
+	def fmtMW(val):
+		return "N/A" if val is None else f"{val:,.3f}"
+
+	def fmtUSD(val):
+		return "N/A" if val is None else f"${val:,.2f}"
+
+	def fmtBool(val):
+		return "N/A" if val is None else ("Yes" if val else "No")
+
+	# Status flags for the template
+	outData["optUpg_success"] = bool(results.get("success", False))
+	outData["optUpg_failureReason"] = results.get("failure_reason") or ""
+	outData["optUpg_upgradeRequired"] = bool(results.get("upgrade_required", False))
+	outData["optUpg_targetAchieved"] = bool(results.get("target_achieved", False))
+
+	outData["optUpg_summaryHeadings"] = [
+		"Site (Bus)",
+		"Baseline HC (MW)",
+		"Target HC (MW)",
+		"Post Upgrade HC (MW)",
+		"HC Released (MW)",
+		"Upgrade Required",
+		"Target Achieved",
+		"Number of Upgrades",
+		"Total Upgrade Cost (USD)",
+		"Runtime (sec)",
+	]
+	outData["optUpg_summaryValues"] = [[
+		results.get("site_id", "N/A"),
+		fmtMW(baseline),
+		fmtMW(target),
+		fmtMW(postUpgrade),
+		fmtMW(released),
+		fmtBool(results.get("upgrade_required")),
+		fmtBool(results.get("target_achieved")),
+		len(upgrades),
+		fmtUSD(totalCost),
+		"N/A" if runtime is None else f"{runtime:,.1f}",
+	]]
+
+	# Ranked upgrade table, ordered by iteration
+	upgrades = sorted(upgrades, key=lambda u: u.get("iteration", 0))
+	outData["optUpg_upgradeHeadings"] = [
+		"Rank", "Asset ID", "Asset Type", "Action", "Old Setting", "New Setting",
+		"Cost (USD)", "HC Before (MW)", "HC After (MW)", "HC Gain (MW)", "kW Gained per $1k"
+	]
+	upgradeRows = []
+	constraintRows = []
+	for u in upgrades:
+		cost = u.get("incremental_cost_usd")
+		gain = u.get("realized_hc_gain_mw")
+		if cost and gain is not None:
+			gainPerK = f"{(gain * 1000) / (cost / 1000):,.2f}"
+		else:
+			gainPerK = "N/A"
+		oldState = u.get("old_state") or {}
+		newState = u.get("new_state") or {}
+		upgradeRows.append([
+			u.get("iteration", "N/A"),
+			u.get("asset_id", "N/A"),
+			str(u.get("asset_type", "N/A")).replace("_", " ").title(),
+			str(u.get("action_type", "N/A")).replace("_", " ").title(),
+			", ".join(f"{k}: {v}" for k, v in oldState.items()) or "N/A",
+			", ".join(f"{k}: {v}" for k, v in newState.items()) or "N/A",
+			fmtUSD(cost),
+			fmtMW(u.get("hc_before_mw")),
+			fmtMW(u.get("hc_after_mw")),
+			fmtMW(gain),
+			gainPerK,
+		])
+		for c in u.get("binding_constraints_before", []) or []:
+			slack = c.get("slack")
+			dual = c.get("dual_kw_per_pu")
+			constraintRows.append([
+				u.get("iteration", "N/A"),
+				u.get("asset_id", "N/A"),
+				str(c.get("family", "N/A")).title(),
+				c.get("hour", "N/A"),
+				c.get("constraint", "N/A"),
+				"N/A" if slack is None else f"{slack:,.4f}",
+				"N/A" if dual is None else f"{dual:,.2f}",
+			])
+	outData["optUpg_upgradeValues"] = upgradeRows
+
+	# Binding constraints that the upgrades were chosen to relieve
+	outData["optUpg_constraintHeadings"] = [
+		"Rank", "Asset ID", "Constraint Family", "Hour", "Constraint", "Slack", "Dual (kW/pu)"
+	]
+	outData["optUpg_constraintValues"] = constraintRows
+
+	# Hosting capacity by upgrade step, with the target as a dashed line
+	stepLabels = ["Baseline"]
+	stepValues = [baseline if baseline is not None else 0]
+	for u in upgrades:
+		stepLabels.append(f"After #{u.get('iteration', '')} {u.get('asset_id', '')}")
+		stepValues.append(u.get("hc_after_mw", 0) or 0)
+	hcFigure = go.Figure()
+	hcFigure.add_trace(go.Bar(
+		x=stepLabels,
+		y=stepValues,
+		name="Hosting Capacity (MW)",
+		marker=dict(color="steelblue"),
+		text=[f"{v:.3f}" for v in stepValues],
+		textposition="outside"
+	))
+	if target is not None:
+		hcFigure.add_trace(go.Scatter(
+			x=stepLabels,
+			y=[target] * len(stepLabels),
+			name="Target (MW)",
+			mode="lines+markers" if len(stepLabels) == 1 else "lines",
+			line=dict(color="red", width=2, dash="dash")
+		))
+	yMax = max(stepValues + ([target] if target is not None else []))
+	hcFigure.update_layout(
+		xaxis_title=None,
+		yaxis_title="Hosting Capacity (MW)",
+		yaxis=dict(range=[0, yMax * 1.15 if yMax > 0 else 1]),
+		legend={
+			"orientation": "h",
+			"yanchor": "bottom",
+			"y": 1.02,
+			"xanchor": "right",
+			"x": 1
+		}
+	)
+	outData["optUpg_hcFigure"] = json.dumps(hcFigure, cls=pu.PlotlyJSONEncoder)
+	return outData
+
+
 def work(modelDir, inputDict: dict) -> dict:
 	''' Run the model in its directory. '''
 	# Delete output file every run if it exists
@@ -154,7 +297,19 @@ def work(modelDir, inputDict: dict) -> dict:
 	pathToOmd = Path(modelDir, feederName)
 	tree = opendss.dssConvert.omdToTree(pathToOmd)
 	opendss.dssConvert.treeToDss(tree, Path(modelDir, 'circuit.dss'))
-	
+
+	# Can't get decaf_cl solver working.
+	# Temporarily copy the output of optimal_upgrades file for testing
+
+	shutil.copyfile( Path(__neoMetaModel__._omfDir, "static", "testFiles", "hostingExpansion", "output_optiUpgrResults.json"),
+								  Path(modelDir, "output_optiUpgrResults.json") )
+
+	shutil.copyfile( Path(__neoMetaModel__._omfDir, "static", "testFiles", "hostingExpansion", "output_optiUpgrResults 2.json"),
+								  Path(modelDir, "output_optiUpgrResults 2.json") )
+
+	outData.update(processOptimalUpgrades( json.load(open(Path(modelDir, "output_optiUpgrResults.json"))) ))
+	# outData.update(processOptimalUpgrades( json.load(open(Path(modelDir, "output_optiUpgrResults 2.json"))) ))
+
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
 	outData["stderr"] = ""
