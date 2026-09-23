@@ -20,7 +20,7 @@ from omf.models.__neoMetaModel__ import *
 from omf import weather
 from omf.solvers import opendss
 from omf.solvers import pysam
-from omf.solvers.decaf_cl import ia_toplevel
+from omf.solvers import decaf_cl
 
 # Model metadata
 modelName, template = __neoMetaModel__.metadata(__file__)
@@ -71,12 +71,6 @@ def processOptimalUpgrades(results: dict) -> dict:
 
 	def fmtBool(val):
 		return "N/A" if val is None else ("Yes" if val else "No")
-
-	# Status flags for the template
-	outData["optUpg_success"] = bool(results.get("success", False))
-	outData["optUpg_failureReason"] = results.get("failure_reason") or ""
-	outData["optUpg_upgradeRequired"] = bool(results.get("upgrade_required", False))
-	outData["optUpg_targetAchieved"] = bool(results.get("target_achieved", False))
 
 	outData["optUpg_summaryHeadings"] = [
 		"Site (Bus)",
@@ -304,8 +298,21 @@ def work(modelDir, inputDict: dict) -> dict:
 	#TODO: Check if the site_id is an actual bus in the circuit before we call optimal_upgrades
 	site_id = inputDict.get("siteID")
 	target_hc_mw = float(inputDict.get("targetHCMW"))
-	optimalUpgradesResults = ia_toplevel.optimal_upgrades(site_id=site_id, target_hc_mw=target_hc_mw)
-	# processOptimalUpgrades(optimalUpgradesResults)
+	optimalUpgradesResults = decaf_cl.ia_toplevel.optimal_upgrades(site_id=site_id, target_hc_mw=target_hc_mw)
+	optiUpgradesFile = Path(modelDir, 'output_optiUpgrResults.json')
+	with open(optiUpgradesFile, 'w') as fp:
+		json.dump(optimalUpgradesResults, fp)
+
+	# Status flags for the template
+	outData["optUpg_success"] = bool(optimalUpgradesResults.get("success", False))
+	if not outData["optUpg_success"]:
+		outData["optUpg_failureReason"] = optimalUpgradesResults.get("failure_reason") or "Unknown error"
+		outData["optUpg_upgradeRequired"] = False
+		outData["optUpg_targetAchieved"] = False
+	outData["optUpg_upgradeRequired"] = bool(optimalUpgradesResults.get("upgrade_required", False))
+	outData["optUpg_targetAchieved"] = bool(optimalUpgradesResults.get("target_achieved", False))
+
+	processOptimalUpgrades( json.load(open(optiUpgradesFile)) )
 
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
