@@ -89,15 +89,11 @@
 				<label class="tooltip">New Interconnection Input File <span class="classic">Upload a .csv file. Format for input columns: busname, kVA, tbd_solar_settings.</span></label>
 				<div>{{ file_upload('newInterconnDataFile', 'newInterconnUIDisplay', 'newInterconnDataFileName') }}</div>
 			</div>
-			<div class="shortInput">
-				<label class="tooltip">Optimal Upgrades Results File <span class="classic">Upload the .json output from decaf.optimal_upgrades. Temporary input until decaf is called directly by the model.</span></label>
-				<div>{{ file_upload('optimalUpgradesDataFile', 'optimalUpgradesUIDisplay', 'optimalUpgradesDataFileName', '.json') }}</div>
-			</div>
 			<div class="wideInput">
-				<p class="inputSectionHeader">PV Details</p>
+				<p class="inputSectionHeader">PV Specifications</p>
 			</div>
 			<div class="shorterInput">
-				<label class="tooltip">Year<span class="classic">1998-2024</span></label>
+				<label class="tooltip">year<span class="classic">1998-2024</span></label>
 				<input type="text" id="year" name="year" value="{{allInputDataDict.year}}" pattern="^(199(8|9)|20[0-2][0-4])$" required="required">
 			</div>
 			<div class="shorterInput">
@@ -112,17 +108,28 @@
 				<label class="tooltip">System Capacity (kWp-DC)<span class="classic">DC output rating of the solar panels in kilowatts.</span></label>
 				<input type="text" id="systemCapacity" name="systemCapacity" value="{{allInputDataDict.systemCapacity}}" pattern="^[1-9]\d*$" required="required">
 			</div>
-				<div class="shorterInput">
+			<div class="shorterInput">
 				<label class="tooltip">Azimuth (degrees)<span class="classic">Cardinal direction the PV system will face. 180 in the northern hemisphere is due South.</span></label>
 				<input type="text" id="azimuth" name="azimuth" value="{{allInputDataDict.azimuth}}" pattern="^\d+\.?\d*$" required="required"/>
 			</div>
-				<div class="shorterInput">
+			<div class="shorterInput">
 				<label class="tooltip">Tilt (degrees)<span class="classic">The tilt of the solar panels measured as an angle in degrees between panels and ground. If '-' is entered, the latitude of the zipcode will be used.</span></label>
 				<input type="text" id="tilt" name="tilt" value="{{allInputDataDict.tilt}}" pattern="^(90|[1-8]\d|\d)?$|-" required="required"/>
 			</div>
-				<div class="shorterInput">
+			<div class="shorterInput">
 				<label class="tooltip">Losses<span class="classic">DC System Losses as %.</span></label>
 				<input type="text" id="losses" name="losses" value="{{allInputDataDict.losses}}" pattern="^\d+\.?\d*$" required="required"/>
+			</div>
+			<div class="wideInput">
+				<p class="inputSectionHeader">Optimal Upgrades Specifications</p>
+			</div>
+			<div class="shorterInput">
+				<label class="tooltip">Site ID<span class="classic">bus name or site id. ex: "bus3131"</span></label>
+				<input type="text" id="siteID" name="siteID" value="{{allInputDataDict.siteID}}" pattern="^[a-zA-Z0-9_.-]*$" required="required">
+			</div>
+			<div class="shorterInput">
+				<label class="tooltip">Target Hosting Capacity (mW) <span class="classic">Target Hosting Capacity in mW.</span></label>
+				<input type="text" id="targetHCMW" name="targetHCMW" value="{{allInputDataDict.targetHCMW}}" pattern="^\d+\.?\d*$" required="required"/>
 			</div>
 		{{ omfModelButtons }}
 		</form>

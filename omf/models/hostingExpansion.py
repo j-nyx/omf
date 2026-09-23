@@ -20,11 +20,11 @@ from omf.models.__neoMetaModel__ import *
 from omf import weather
 from omf.solvers import opendss
 from omf.solvers import pysam
+from omf.solvers.decaf_cl import ia_toplevel
 
 # Model metadata
 modelName, template = __neoMetaModel__.metadata(__file__)
 hidden = False
-
 
 def checkCircuitSolar(modelDir, inputDict: dict):
 	'''
@@ -301,14 +301,11 @@ def work(modelDir, inputDict: dict) -> dict:
 	# Can't get decaf_cl solver working.
 	# Temporarily copy the output of optimal_upgrades file for testing
 
-	shutil.copyfile( Path(__neoMetaModel__._omfDir, "static", "testFiles", "hostingExpansion", "output_optiUpgrResults.json"),
-								  Path(modelDir, "output_optiUpgrResults.json") )
-
-	shutil.copyfile( Path(__neoMetaModel__._omfDir, "static", "testFiles", "hostingExpansion", "output_optiUpgrResults 2.json"),
-								  Path(modelDir, "output_optiUpgrResults 2.json") )
-
-	outData.update(processOptimalUpgrades( json.load(open(Path(modelDir, "output_optiUpgrResults.json"))) ))
-	# outData.update(processOptimalUpgrades( json.load(open(Path(modelDir, "output_optiUpgrResults 2.json"))) ))
+	#TODO: Check if the site_id is an actual bus in the circuit before we call optimal_upgrades
+	site_id = inputDict.get("siteID")
+	target_hc_mw = float(inputDict.get("targetHCMW"))
+	optimalUpgradesResults = ia_toplevel.optimal_upgrades(site_id=site_id, target_hc_mw=target_hc_mw)
+	# processOptimalUpgrades(optimalUpgradesResults)
 
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
@@ -347,7 +344,10 @@ def new(modelDir):
 		"systemCapacity": 800,
 		"tilt": 45,
 		"losses": 15.5,
+		"siteID": "bus3131",
+		"targetHCMW": 1.20
 	}
+
 	creationCode = __neoMetaModel__.new(modelDir, defaultInputs)
 	# Copy files from the test directory ( or respective places ) and put them in the model for use
 	try:
