@@ -1,8 +1,8 @@
-"""KKT-screened, response-based and catalog-aware upgrade planning.
+"""Thermal-first catalog planning, delayed one-bank placement, and HC fallback.
 
-KKT information comes from the current maximum-HC LP. It is used only to
-screen physical actions. Every accepted action is selected from realized HC
-gain obtained by applying the action and re-solving that LP.
+The public planner uses frozen target constraints and re-solves the ICNN LP
+after accepted actions. Private KKT helpers are retained for regression
+analysis but are not part of the current planning route.
 """
 
 from __future__ import annotations
@@ -12,9 +12,10 @@ from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+from scipy.optimize import Bounds, LinearConstraint, milp
 
 from .data import load_runtime_data, site_index
-from .lp import initial_network_state, solve_hc_lp
+from .lp import initial_network_state, solve_hc_lp, target_voltage_margins
 from .sensitivity import response_for_taps, weighted_constraint_relief
 
 
@@ -250,6 +251,191 @@ def _action_record(
     }
 
 
+def _thermal_target_actions(data, index, target, catalog):
+    """Choose the smallest adequate catalog tier for every overloaded asset."""
+    state = initial_network_state(data)
+    baseline = data["thermal"]["baseline_frac"].astype(float)
+    gamma = data["thermal"]["gamma_frac_per_mw"][index].astype(float)
+    required_fraction = baseline + target * gamma
+    original = data["thermal"]["original_rating"].astype(float)
+    lengths = data["thermal"]["length_km"].astype(float)
+    phases = data["thermal"]["asset_phase"].astype(str)
+    choices = []
+    for group in _physical_asset_groups(data):
+        rows = group["row_indices"]
+        required = float(np.max(required_fraction[:, rows] * original[rows][None, :]))
+        current = float(np.max(original[rows]))
+        if required <= current + 1e-7:
+            continue
+        ratings, _ = _catalog_arrays(catalog, group["asset_type"])
+        eligible = ratings[(ratings > current + 1e-7) & (ratings >= required - 1e-7)]
+        if not len(eligible):
+            return None, [], (f"thermal catalog exhausted at {group['asset_id']}: "
+                              f"required {required:.6g}, maximum {float(np.max(ratings)):.6g}")
+        rating = float(np.min(eligible))
+        cost, _ = _incremental_cost(catalog, group["asset_type"], rating,
+                                    float(np.max(lengths[rows])), 0.0)
+        choices.append({
+            "kind": "thermal", "asset_id": str(group["asset_id"]),
+            "asset_type": str(group["asset_type"]), "rows": rows,
+            "old_rating": current, "new_rating": rating,
+            "rating_unit": str(data["thermal"]["rating_unit"][rows[0]]),
+            "affected_phases": sorted(str(phase) for phase in set(phases[rows].tolist())),
+            "affected_constraint_rows": int(len(data["critical"]["hours"]) * len(rows)),
+            "incremental_cost_usd": cost,
+        })
+        state.thermal_rating_multipliers[rows] = rating / original[rows]
+    choices.sort(key=lambda action: (action["asset_type"], action["asset_id"]))
+    if np.max(required_fraction - state.thermal_rating_multipliers[None, :]) > 1e-7:
+        return None, [], "thermal target remains infeasible after catalog replacements"
+    return state, choices, None
+
+
+def _hourly_taps(margins, response, available, signed):
+    """Exact integer minimum-tap schedule for one location and all frozen hours."""
+    hours = len(margins)
+    schedule = np.zeros((hours, 3), dtype=int)
+    lower = -16 * np.asarray(available, dtype=int)
+    upper = (16 if signed else 0) * np.asarray(available, dtype=int)
+    a = np.zeros((response.shape[0] + 6, 6), dtype=float)
+    a[:response.shape[0], :3] = response
+    for phase in range(3):
+        a[response.shape[0] + 2 * phase, phase] = 1
+        a[response.shape[0] + 2 * phase, phase + 3] = -1
+        a[response.shape[0] + 2 * phase + 1, phase] = -1
+        a[response.shape[0] + 2 * phase + 1, phase + 3] = -1
+    bounds = Bounds(np.r_[lower, np.zeros(3)], np.r_[upper, np.full(3, 16)])
+    objective = np.r_[np.zeros(3), np.ones(3)]
+    for hi, row in enumerate(margins):
+        if np.max(row) <= 1e-8:
+            continue
+        best_possible = row + np.sum(np.minimum(response * lower, response * upper), axis=1)
+        if np.max(best_possible) > 1e-8:
+            return None
+        lb = np.r_[np.full(len(row), -np.inf), np.full(6, -np.inf)]
+        ub = np.r_[-row, np.zeros(6)]
+        answer = milp(objective, integrality=np.array([1, 1, 1, 0, 0, 0]),
+                      bounds=bounds, constraints=LinearConstraint(a, lb, ub),
+                      options={"time_limit": 2.0, "mip_rel_gap": 0.0})
+        if not answer.success or answer.x is None:
+            return None
+        tap = np.rint(answer.x[:3]).astype(int)
+        if np.max(row + response @ tap) > 1e-6:
+            return None
+        schedule[hi] = tap
+    return schedule
+
+
+def _regulator_target_action(data, margins, catalog):
+    """Find the least-tap feasible single line bank, then broaden tap search."""
+    if "candidate" not in data:
+        return None, "candidate response library missing"
+    candidate = data["candidate"]
+    names = candidate["locations"].astype(str)
+    matrices = candidate["response_per_tap_margin_pu"].astype(float, copy=False)
+    phases = candidate["available_phases"].astype(bool)
+    best = None
+    for signed in (False, True):
+        for i, name in enumerate(names):
+            schedule = _hourly_taps(margins, matrices[i], phases[i], signed)
+            if schedule is None:
+                continue
+            effort = int(np.abs(schedule).sum())
+            peak = int(np.max(np.abs(schedule), axis=0).sum())
+            key = (effort, peak, name)
+            if best is None or key < best[0]:
+                best = (key, i, schedule, "signed_-16_to_16" if signed else "initial_-16_to_0")
+        if best is not None:
+            break
+    if best is None:
+        return None, f"no feasible one-bank location among {len(names)} frozen candidate lines after expanded signed-tap search"
+    _, index, schedule, search_range = best
+    fixed = float(catalog["regulator_install_cost_usd"].reshape(-1)[0])
+    per_tap = float(catalog["regulator_setting_cost_usd_per_tap"].reshape(-1)[0])
+    action = {
+        "kind": "regulator", "asset_type": "regulator", "asset_id": str(names[index]),
+        "location": str(names[index]), "location_index": int(index),
+        "hourly_tap_schedule": schedule, "search_range": search_range,
+        "candidate_location_count": len(names), "tap_effort": int(np.abs(schedule).sum()),
+        "incremental_cost_usd": fixed + per_tap * int(np.max(np.abs(schedule), axis=0).sum()),
+        "selected_response_source": str(candidate["response_source"].reshape(-1)[0]),
+    }
+    return action, None
+
+
+def _plan_at_target(site_id, target, data, index, catalog):
+    state, actions, failure = _thermal_target_actions(data, index, target, catalog)
+    if failure is not None:
+        return None, [], failure
+    margins = target_voltage_margins(site_id, target, data)
+    margins += response_for_taps(data, state.regulator_taps)
+    if np.max(margins) > 1e-7:
+        regulator, failure = _regulator_target_action(data, margins, catalog)
+        if failure is not None:
+            return None, [], failure
+        state.candidate_location_index = regulator["location_index"]
+        state.candidate_taps = regulator["hourly_tap_schedule"]
+        actions.append(regulator)
+    return state, actions, None
+
+
+def _record_actions(site_id, data, baseline, choices):
+    state = initial_network_state(data)
+    current = baseline
+    records = []
+    original = data["thermal"]["original_rating"].astype(float)
+    for iteration, action in enumerate(choices, 1):
+        if action["kind"] == "thermal":
+            rows = action["rows"]
+            state.thermal_rating_multipliers[rows] = action["new_rating"] / original[rows]
+        else:
+            state.candidate_location_index = action["location_index"]
+            state.candidate_taps = action["hourly_tap_schedule"]
+        new = solve_hc_lp(site_id, data, state)
+        if not new.success:
+            raise RuntimeError(f"Upgrade LP failed after {action['asset_id']}: {new.message}")
+        common = {
+            "iteration": iteration, "asset_id": str(action["asset_id"]),
+            "asset_type": str(action["asset_type"]),
+            "incremental_cost_usd": float(action["incremental_cost_usd"]),
+            "kkt_weighted_score": 0.0,
+            "hc_before_mw": float(current.hosting_capacity_mw),
+            "hc_after_mw": float(new.hosting_capacity_mw),
+            "realized_hc_gain_mw": float(new.hosting_capacity_mw - current.hosting_capacity_mw),
+            "binding_constraints_before": current.binding_constraints,
+            "guidance_source": "frozen target-constraint sensitivity",
+        }
+        if action["kind"] == "thermal":
+            record = common | {
+                "old_rating": action["old_rating"], "new_rating": action["new_rating"],
+                "rating_unit": action["rating_unit"],
+                "old_state": {"rating": action["old_rating"], "unit": action["rating_unit"]},
+                "new_state": {"rating": action["new_rating"], "unit": action["rating_unit"]},
+                "affected_phases": action["affected_phases"],
+                "affected_constraint_rows": action["affected_constraint_rows"],
+                "reason": "thermal-first smallest adequate physical-asset catalog tier",
+                "action_type": "catalog_replacement",
+            }
+        else:
+            schedule = action["hourly_tap_schedule"]
+            record = common | {
+                "location": action["location"], "regulator_location": action["location"],
+                "old_state": {"tap": 0},
+                "new_state": {"tap": int(np.min(schedule))},
+                "old_tap": 0, "new_tap": int(np.min(schedule)),
+                "selected_response_source": action["selected_response_source"],
+                "response_anchor_information": {
+                    "anchors": [-1, 0], "old_tap_mode": "exact_anchor",
+                    "new_tap_mode": "linear_interpolation",
+                },
+                "reason": "regulator-last, minimum total absolute taps among feasible frozen line candidates",
+                "action_type": "regulator_tap_setting",
+            }
+        records.append(record)
+        current = new
+    return records, current
+
+
 def plan_upgrade_impl(site_id: str, target_hc_mw: float, catalog_id: str) -> dict:
     if not np.isfinite(target_hc_mw) or float(target_hc_mw) <= 0.0:
         raise ValueError("target_hc_mw must be a finite positive absolute MW target")
@@ -270,51 +456,43 @@ def plan_upgrade_impl(site_id: str, target_hc_mw: float, catalog_id: str) -> dic
             "success": True, "failure_reason": None,
         }
 
-    current = baseline
-    actions: list[dict[str, Any]] = []
-    selected: dict[tuple[str, str], dict[str, float]] = {}
-    failure = None
-    for iteration in range(1, MAX_ITERATIONS + 1):
-        guidance = _maximum_hc_guidance(current)
-        candidates = _thermal_candidates(data, state, guidance, catalog, selected)
-        candidates += _voltage_candidates(data, state, guidance, catalog)
-        candidates.sort(key=lambda item: (item["screening_score"], item["kkt_weighted_score"]), reverse=True)
-        if not candidates:
-            failure = "catalog exhausted or no maximum-HC KKT/response-supported physical action"
-            break
-
-        evaluated = []
-        for candidate in candidates:
-            trial_state = _apply_candidate(data, state, candidate)
-            trial_result = solve_hc_lp(site_id, data, trial_state)
-            if trial_result.success and trial_result.hosting_capacity_mw > current.hosting_capacity_mw + HC_NUMERICAL_TOL_MW:
-                realized_gain = trial_result.hosting_capacity_mw - current.hosting_capacity_mw
-                decision_metric = realized_gain / max(candidate["incremental_cost_usd"], 1.0)
-                evaluated.append((decision_metric, realized_gain, candidate, trial_state, trial_result))
-        if not evaluated:
-            failure = "screened physical actions did not increase HC after maximum-HC LP re-solve"
-            break
-
-        _, _, chosen, next_state, next_result = max(evaluated, key=lambda item: (item[0], item[1]))
-        action = _action_record(data, iteration, chosen, state, next_state, current, next_result, selected)
-        actions.append(action)
-        if chosen["kind"] == "thermal":
-            selected[(chosen["asset_type"], chosen["asset_id"])] = {
-                "rating": float(chosen["new_rating"]),
-                "paid_catalog_cost": float(chosen["cumulative_catalog_cost_usd"]),
-            }
-        state, current = next_state, next_result
-        if current.hosting_capacity_mw + HC_NUMERICAL_TOL_MW >= float(target_hc_mw):
-            break
-
-    achieved = bool(current.hosting_capacity_mw + HC_NUMERICAL_TOL_MW >= float(target_hc_mw))
-    if not achieved and failure is None:
-        failure = f"iteration limit {MAX_ITERATIONS} reached"
+    requested = float(target_hc_mw)
+    state, choices, failure = _plan_at_target(site_id, requested, data, index, catalog)
+    verified_target = requested
+    if failure is not None:
+        original_failure = failure
+        lower = float(baseline.hosting_capacity_mw)
+        upper = requested
+        best = (initial_network_state(data), [], lower)
+        for factor in (0.75, 0.50, 0.25):
+            trial = lower + factor * (requested - lower)
+            trial_state, trial_choices, trial_failure = _plan_at_target(site_id, trial, data, index, catalog)
+            if trial_failure is None:
+                best = trial_state, trial_choices, trial
+                lower = trial
+                break
+            upper = trial
+        for _ in range(8):
+            trial = 0.5 * (lower + upper)
+            if upper - lower < 0.001:
+                break
+            trial_state, trial_choices, trial_failure = _plan_at_target(site_id, trial, data, index, catalog)
+            if trial_failure is None:
+                best = trial_state, trial_choices, trial
+                lower = trial
+            else:
+                upper = trial
+        state, choices, verified_target = best
+        failure = f"requested target infeasible ({original_failure}); returned verified frozen-model HC fallback"
+    actions, current = _record_actions(site_id, data, baseline, choices)
+    if current.hosting_capacity_mw + 1e-6 < verified_target:
+        raise RuntimeError("Frozen target feasibility disagrees with maximum-HC LP")
+    achieved = bool(current.hosting_capacity_mw + 1e-6 >= requested)
     return {
         "site_id": str(data["sites"]["id"][index]), "baseline_hc_mw": baseline.hosting_capacity_mw,
         "target_hc_mw": float(target_hc_mw), "upgrade_required": True, "target_achieved": achieved,
-        "post_upgrade_hc_mw": current.hosting_capacity_mw,
-        "released_hc_mw": current.hosting_capacity_mw - baseline.hosting_capacity_mw,
+        "post_upgrade_hc_mw": min(float(current.hosting_capacity_mw), requested) if not achieved else current.hosting_capacity_mw,
+        "released_hc_mw": (min(float(current.hosting_capacity_mw), requested) if not achieved else current.hosting_capacity_mw) - baseline.hosting_capacity_mw,
         "total_cost_usd": float(sum(action["incremental_cost_usd"] for action in actions)),
         "upgrades": actions, "runtime_sec": time.perf_counter() - started,
         "success": achieved, "failure_reason": None if achieved else failure,

@@ -12,9 +12,15 @@ import numpy as np
 class NetworkState:
     thermal_rating_multipliers: np.ndarray
     regulator_taps: np.ndarray
+    candidate_location_index: int | None = None
+    candidate_taps: np.ndarray | None = None
 
     def copy(self) -> "NetworkState":
-        return NetworkState(self.thermal_rating_multipliers.copy(), self.regulator_taps.copy())
+        return NetworkState(
+            self.thermal_rating_multipliers.copy(), self.regulator_taps.copy(),
+            self.candidate_location_index,
+            None if self.candidate_taps is None else self.candidate_taps.copy(),
+        )
 
 
 @dataclass

@@ -23,7 +23,7 @@ def _insert(tree: dict[str, Any], key: str, value: np.ndarray) -> None:
 
 
 def _validate(data: dict[str, Any]) -> None:
-    required = ["sites", "critical", "models", "thermal", "regulator", "catalogs", "config", "outputs"]
+    required = ["sites", "critical", "models", "thermal", "regulator", "candidate", "catalogs", "config", "outputs"]
     missing = [name for name in required if name not in data]
     if missing:
         raise RuntimeDataError(f"Missing runtime data groups: {missing}")
@@ -39,6 +39,13 @@ def _validate(data: dict[str, Any]) -> None:
     response = data["regulator"]["response_margin_pu"]
     if response.shape[2:] != (n_hours, n_outputs):
         raise RuntimeDataError("Regulator response library is not aligned with hours/ICNN outputs")
+    if "candidate" in data:
+        candidate = data["candidate"]
+        count = len(candidate["locations"])
+        if candidate["available_phases"].shape != (count, 3):
+            raise RuntimeDataError("Candidate line phases are not aligned with locations")
+        if candidate["response_per_tap_margin_pu"].shape != (count, n_outputs, 3):
+            raise RuntimeDataError("Candidate line response is not aligned with ICNN outputs")
     if len(np.unique(data["sites"]["id"])) != n_sites:
         raise RuntimeDataError("Duplicate site IDs in runtime data")
     if int(data["config"]["schema_version"].reshape(-1)[0]) != 1:

@@ -39,6 +39,36 @@ def _model(data: dict[str, Any], model_id: str) -> dict[str, np.ndarray]:
     return model
 
 
+def target_voltage_margins(site_id: str, target_hc_mw: float, data: dict[str, Any]) -> np.ndarray:
+    """Evaluate all frozen-hour ICNN margin outputs at an absolute PV capacity."""
+    index = site_index(data, site_id)
+    model = _model(data, str(data["sites"]["model_id"][index]))
+    direction = (data["critical"]["pv_capacity_factor"].astype(float)[:, None] *
+                 data["sites"]["direction"][index].astype(float)[None, :])
+    x = data["critical"]["base_features"].astype(float) + float(target_hc_mw) * 1000.0 * direction
+    x = (x - model["pq_mean"]) / model["pq_std"]
+    z = np.maximum(x @ model["A_0_weights"].T + model["A_0_bias"], 0.0)
+    for layer in range(1, 4):
+        z = np.maximum(x @ model[f"A_{layer}_weights"].T + model[f"A_{layer}_bias"] +
+                       z @ model[f"W_{layer-1}_weights"].T, 0.0)
+    return (x @ model["A_output_weights"].T + model["Output_bias"] +
+            z @ model["Output_weights"].T +
+            float(data["config"]["voltage_guard_pu"].reshape(-1)[0]))
+
+
+def _voltage_response(data: dict[str, Any], state: NetworkState) -> np.ndarray:
+    response = response_for_taps(data, state.regulator_taps)
+    if state.candidate_location_index is not None:
+        if state.candidate_taps is None or "candidate" not in data:
+            raise RuntimeError("Selected line regulator has no frozen tap response")
+        matrix = data["candidate"]["response_per_tap_margin_pu"][state.candidate_location_index]
+        taps = np.asarray(state.candidate_taps, dtype=float)
+        if taps.shape != (len(data["critical"]["hours"]), 3):
+            raise RuntimeError("Line-regulator hourly A/B/C taps are misaligned")
+        response = response + taps @ matrix.T
+    return response
+
+
 def _add_h_column(block: csc_matrix, coefficient: np.ndarray) -> csc_matrix:
     return hstack([csc_matrix(coefficient.reshape(-1, 1)), block], format="csc")
 
@@ -168,7 +198,7 @@ def solve_hc_lp(site_id: str, data: dict[str, Any] | None = None, state: Network
     state = initial_network_state(data) if state is None else state
     model_id = str(data["sites"]["model_id"][index])
     model = _model(data, model_id)
-    response = response_for_taps(data, state.regulator_taps)
+    response = _voltage_response(data, state)
     direction = data["critical"]["pv_capacity_factor"].astype(float)[:, None] * data["sites"]["direction"][index].astype(float)[None, :]
     c, a, b, bounds, info = build_strict_joint_lp(
         data["critical"]["base_features"], direction, model,

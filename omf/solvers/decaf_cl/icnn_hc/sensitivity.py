@@ -8,26 +8,35 @@ from .data import RuntimeDataError
 
 
 def response_for_taps(data: dict, taps: np.ndarray) -> np.ndarray:
-    """Return the summed margin response for a vector of regulator tap states."""
+    """Return summed margin response for static or per-hour A/B/C tap states."""
     locations = data["regulator"]["locations"].astype(str)
     anchors = data["regulator"]["tap_anchors"].astype(float)
     library = data["regulator"]["response_margin_pu"].astype(float, copy=False)
     taps = np.asarray(taps, dtype=float)
-    if taps.shape != (len(locations),):
-        raise RuntimeDataError(f"Expected {len(locations)} regulator taps, got shape {taps.shape}")
+    static = taps.shape == (len(locations),)
+    hourly = taps.shape == (library.shape[2], len(locations))
+    if not (static or hourly):
+        raise RuntimeDataError(
+            f"Expected {(len(locations),)} static or "
+            f"{(library.shape[2], len(locations))} hourly taps, got shape {taps.shape}"
+        )
     if library.shape[:2] != (len(locations), len(anchors)):
         raise RuntimeDataError("Regulator response location/anchor alignment error")
     if np.any(taps < anchors.min()) or np.any(taps > anchors.max()):
         raise ValueError(f"Regulator taps must lie in [{anchors.min():g}, {anchors.max():g}]")
     total = np.zeros(library.shape[2:], dtype=float)
-    for location_index, tap in enumerate(taps):
-        if tap in anchors:
-            total += library[location_index, int(np.flatnonzero(anchors == tap)[0])]
-            continue
-        upper = int(np.searchsorted(anchors, tap))
+    if static:
+        taps = np.broadcast_to(taps, (library.shape[2], len(locations)))
+    hour_index = np.arange(library.shape[2])
+    for location_index in range(len(locations)):
+        location_taps = taps[:, location_index]
+        upper = np.searchsorted(anchors, location_taps, side="left")
+        upper = np.clip(upper, 1, len(anchors) - 1)
         lower = upper - 1
-        fraction = (tap - anchors[lower]) / (anchors[upper] - anchors[lower])
-        total += (1.0 - fraction) * library[location_index, lower] + fraction * library[location_index, upper]
+        fraction = ((location_taps - anchors[lower]) /
+                    (anchors[upper] - anchors[lower]))
+        total += ((1.0 - fraction[:, None]) * library[location_index, lower, hour_index] +
+                  fraction[:, None] * library[location_index, upper, hour_index])
     return total
 
 
