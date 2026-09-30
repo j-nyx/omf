@@ -62,15 +62,13 @@ def processOptimalUpgrades(results: dict) -> dict:
 	released = results.get("released_hc_mw")
 	totalCost = results.get("total_cost_usd")
 	runtime = results.get("runtime_sec")
+	upgradeRequired = results.get("upgrade_required")
+	targetAchieved = results.get("target_achieved")
 
-	def fmtMW(val):
-		return "N/A" if val is None else f"{val:,.3f}"
-
-	def fmtUSD(val):
-		return "N/A" if val is None else f"${val:,.2f}"
-
-	def fmtBool(val):
-		return "N/A" if val is None else ("Yes" if val else "No")
+	outData["optUpg_success"] = bool(results.get("success", False))
+	outData["optUpg_failureReason"] = results.get("failure_reason") or ""
+	outData["optUpg_upgradeRequired"] = bool(upgradeRequired)
+	outData["optUpg_targetAchieved"] = bool(targetAchieved)
 
 	outData["optUpg_summaryHeadings"] = [
 		"Site (Bus)",
@@ -86,82 +84,123 @@ def processOptimalUpgrades(results: dict) -> dict:
 	]
 	outData["optUpg_summaryValues"] = [[
 		results.get("site_id", "N/A"),
-		fmtMW(baseline),
-		fmtMW(target),
-		fmtMW(postUpgrade),
-		fmtMW(released),
-		fmtBool(results.get("upgrade_required")),
-		fmtBool(results.get("target_achieved")),
+		"N/A" if baseline is None else f"{baseline:,.3f}",
+		"N/A" if target is None else f"{target:,.3f}",
+		"N/A" if postUpgrade is None else f"{postUpgrade:,.3f}",
+		"N/A" if released is None else f"{released:,.3f}",
+		"N/A" if upgradeRequired is None else ("Yes" if upgradeRequired else "No"),
+		"N/A" if targetAchieved is None else ("Yes" if targetAchieved else "No"),
 		len(upgrades),
-		fmtUSD(totalCost),
+		"N/A" if totalCost is None else f"${totalCost:,.2f}",
 		"N/A" if runtime is None else f"{runtime:,.1f}",
 	]]
 
 	# Ranked upgrade table, ordered by iteration
-	upgrades = sorted(upgrades, key=lambda u: u.get("iteration", 0))
+	upgrades = sorted(upgrades, key=lambda upgrade: upgrade.get("iteration", 0))
 	outData["optUpg_upgradeHeadings"] = [
 		"Rank", "Asset ID", "Asset Type", "Action", "Old Setting", "New Setting",
 		"Cost (USD)", "HC Before (MW)", "HC After (MW)", "HC Gain (MW)", "kW Gained per $1k"
 	]
+	# The table is sorted by this column when the page loads. Clicking any header re sorts it.
+	# 0 = Rank, 6 = Cost, 9 = HC Gain, 10 = kW Gained per $1k.
+	outData["optUpg_defaultSortColumn"] = 0
+	outData["optUpg_defaultSortDirection"] = "asc"
+	outData["optUpg_defaultSortNote"] = "Rank is the order in which decaf selected the upgrades. Click any column header to sort by that column."
 	upgradeRows = []
+	# Unformatted copy of every cell so the table sorts on real numbers instead of display strings
+	upgradeSortRows = []
 	constraintRows = []
-	for u in upgrades:
-		cost = u.get("incremental_cost_usd")
-		gain = u.get("realized_hc_gain_mw")
-		if cost and gain is not None:
-			gainPerK = f"{(gain * 1000) / (cost / 1000):,.2f}"
+	for upgrade in upgrades:
+		cost = upgrade.get("incremental_cost_usd")
+		gain = upgrade.get("realized_hc_gain_mw")
+		hcBefore = upgrade.get("hc_before_mw")
+		hcAfter = upgrade.get("hc_after_mw")
+		assetType = str(upgrade.get("asset_type", "N/A"))
+		oldState = upgrade.get("old_state") or {}
+		newState = upgrade.get("new_state") or {}
+		newSettingText = ", ".join(f"{name}: {value}" for name, value in newState.items()) or "N/A"
+		# The original network has no voltage regulator, so decaf's tap change is really an
+		# installation. Show it that way rather than as a change to an existing tap setting.
+		if assetType == "regulator":
+			actionText = "Voltage Regulator Installation"
+			oldSettingText = "No Regulator"
 		else:
+			actionText = str(upgrade.get("action_type", "N/A")).replace("_", " ").title()
+			oldSettingText = ", ".join(f"{name}: {value}" for name, value in oldState.items()) or "N/A"
+		if cost and gain is not None:
+			gainPerKRaw = (gain * 1000) / (cost / 1000)
+			gainPerK = f"{gainPerKRaw:,.2f}"
+		else:
+			gainPerKRaw = ""
 			gainPerK = "N/A"
-		oldState = u.get("old_state") or {}
-		newState = u.get("new_state") or {}
 		upgradeRows.append([
-			u.get("iteration", "N/A"),
-			u.get("asset_id", "N/A"),
-			str(u.get("asset_type", "N/A")).replace("_", " ").title(),
-			str(u.get("action_type", "N/A")).replace("_", " ").title(),
-			", ".join(f"{k}: {v}" for k, v in oldState.items()) or "N/A",
-			", ".join(f"{k}: {v}" for k, v in newState.items()) or "N/A",
-			fmtUSD(cost),
-			fmtMW(u.get("hc_before_mw")),
-			fmtMW(u.get("hc_after_mw")),
-			fmtMW(gain),
+			upgrade.get("iteration", "N/A"),
+			upgrade.get("asset_id", "N/A"),
+			assetType.replace("_", " ").title(),
+			actionText,
+			oldSettingText,
+			newSettingText,
+			"N/A" if cost is None else f"${cost:,.2f}",
+			"N/A" if hcBefore is None else f"{hcBefore:,.3f}",
+			"N/A" if hcAfter is None else f"{hcAfter:,.3f}",
+			"N/A" if gain is None else f"{gain:,.3f}",
 			gainPerK,
 		])
-		for c in u.get("binding_constraints_before", []) or []:
-			slack = c.get("slack")
-			dual = c.get("dual_kw_per_pu")
+		upgradeSortRows.append([
+			upgrade.get("iteration", ""),
+			str(upgrade.get("asset_id", "")),
+			assetType,
+			actionText,
+			oldSettingText,
+			newSettingText,
+			"" if cost is None else cost,
+			"" if hcBefore is None else hcBefore,
+			"" if hcAfter is None else hcAfter,
+			"" if gain is None else gain,
+			gainPerKRaw,
+		])
+		for constraint in upgrade.get("binding_constraints_before", []) or []:
 			constraintRows.append([
-				u.get("iteration", "N/A"),
-				u.get("asset_id", "N/A"),
-				str(c.get("family", "N/A")).title(),
-				c.get("hour", "N/A"),
-				c.get("constraint", "N/A"),
-				"N/A" if slack is None else f"{slack:,.4f}",
-				"N/A" if dual is None else f"{dual:,.2f}",
+				upgrade.get("iteration", "N/A"),
+				upgrade.get("asset_id", "N/A"),
+				str(constraint.get("family", "N/A")).title(),
+				constraint.get("hour", "N/A"),
+				constraint.get("constraint", "N/A"),
 			])
 	outData["optUpg_upgradeValues"] = upgradeRows
+	outData["optUpg_upgradeSortValues"] = upgradeSortRows
 
 	# Binding constraints that the upgrades were chosen to relieve
 	outData["optUpg_constraintHeadings"] = [
-		"Rank", "Asset ID", "Constraint Family", "Hour", "Constraint", "Slack", "Dual (kW/pu)"
+		"Rank", "Asset ID", "Constraint Family", "Hour", "Constraint"
 	]
 	outData["optUpg_constraintValues"] = constraintRows
 
 	# Hosting capacity by upgrade step, with the target as a dashed line
 	stepLabels = ["Baseline"]
 	stepValues = [baseline if baseline is not None else 0]
-	for u in upgrades:
-		stepLabels.append(f"After #{u.get('iteration', '')} {u.get('asset_id', '')}")
-		stepValues.append(u.get("hc_after_mw", 0) or 0)
+	for upgrade in upgrades:
+		stepLabels.append(f"After #{upgrade.get('iteration', '')} {upgrade.get('asset_id', '')}")
+		stepValues.append(upgrade.get("hc_after_mw", 0) or 0)
+	# Baseline is the dark green bar. Every bar after an upgrade is the lighter green.
 	hcFigure = go.Figure()
 	hcFigure.add_trace(go.Bar(
 		x=stepLabels,
-		y=stepValues,
-		name="Hosting Capacity (MW)",
-		marker=dict(color="steelblue"),
-		text=[f"{v:.3f}" for v in stepValues],
+		y=[stepValues[0]] + [None] * (len(stepValues) - 1),
+		name="Baseline (MW)",
+		marker=dict(color="#006400"),
+		text=[f"{stepValues[0]:.3f}"] + [""] * (len(stepValues) - 1),
 		textposition="outside"
 	))
+	if len(stepValues) > 1:
+		hcFigure.add_trace(go.Bar(
+			x=stepLabels,
+			y=[None] + stepValues[1:],
+			name="After Upgrade (MW)",
+			marker=dict(color="#66BB6A"),
+			text=[""] + [f"{value:.3f}" for value in stepValues[1:]],
+			textposition="outside"
+		))
 	if target is not None:
 		hcFigure.add_trace(go.Scatter(
 			x=stepLabels,
@@ -172,6 +211,7 @@ def processOptimalUpgrades(results: dict) -> dict:
 		))
 	yMax = max(stepValues + ([target] if target is not None else []))
 	hcFigure.update_layout(
+		barmode="overlay",
 		xaxis_title=None,
 		yaxis_title="Hosting Capacity (MW)",
 		yaxis=dict(range=[0, yMax * 1.15 if yMax > 0 else 1]),
@@ -292,9 +332,6 @@ def work(modelDir, inputDict: dict) -> dict:
 	tree = opendss.dssConvert.omdToTree(pathToOmd)
 	opendss.dssConvert.treeToDss(tree, Path(modelDir, 'circuit.dss'))
 
-	# Can't get decaf_cl solver working.
-	# Temporarily copy the output of optimal_upgrades file for testing
-
 	#TODO: Check if the site_id is an actual bus in the circuit before we call optimal_upgrades
 	site_id = inputDict.get("siteID")
 	target_hc_mw = float(inputDict.get("targetHCMW"))
@@ -303,16 +340,7 @@ def work(modelDir, inputDict: dict) -> dict:
 	with open(optiUpgradesFile, 'w') as fp:
 		json.dump(optimalUpgradesResults, fp)
 
-	# Status flags for the template
-	outData["optUpg_success"] = bool(optimalUpgradesResults.get("success", False))
-	if not outData["optUpg_success"]:
-		outData["optUpg_failureReason"] = optimalUpgradesResults.get("failure_reason") or "Unknown error"
-		outData["optUpg_upgradeRequired"] = False
-		outData["optUpg_targetAchieved"] = False
-	outData["optUpg_upgradeRequired"] = bool(optimalUpgradesResults.get("upgrade_required", False))
-	outData["optUpg_targetAchieved"] = bool(optimalUpgradesResults.get("target_achieved", False))
-
-	processOptimalUpgrades( json.load(open(optiUpgradesFile)) )
+	outData.update( processOptimalUpgrades( json.load(open(optiUpgradesFile)) ) )
 
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
@@ -330,7 +358,7 @@ def new(modelDir):
 	derPipelineFilePath = Path(omf.omfDir,'static','testFiles', 'hostingExpansion', derPipelineFileName)
 	newInterconnFileName = "input_newInterconnData.csv"
 	newInterconnFilePath = Path(omf.omfDir,'static','testFiles', 'hostingExpansion', newInterconnFileName)
-	
+
 	defaultInputs = {
 		"user": "admin",
 		"modelType": modelName,

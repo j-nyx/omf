@@ -10,8 +10,8 @@
 			position: relative;
 		}
 		@media print {
-			#optimalUpgradesTable {overflow-y:visible !important; height:auto !important;}
-			#bindingConstraintsTable {overflow-y:visible !important; height:auto !important;}
+			#optimalUpgradesTable {overflow-y:visible !important; max-height:none !important;}
+			#bindingConstraintsTable {overflow-y:visible !important; max-height:none !important;}
 		}
 	</style>
 	<script src="{{pathPrefix}}/static/highcharts4.src.js"></script>
@@ -20,7 +20,7 @@
 		line 1: input for the actual file. There should be no value in inputDict that matches this one.
 		line 2: button for file upload, thats it.
 		line 3: the name of the file the user is using/inputting in. We wanna save this for display. Originally its set as the default.
-		line 4: This is hidden. This is the name of the file we want always = .csv name <- default naming convention 
+		line 4: This is hidden. This is the name of the file we want always = .csv name <- default naming convention
 	-->
 	{% macro file_upload(fileInputID, userFileDisplayNameID, dataFileNameID, acceptType='.csv') -%}
     <input type="file" id="{{fileInputID}}" name="{{ allInputDataDict[dataFileNameID] }}" accept="{{acceptType}}" class="fileButton" onchange="updateFileNameDisplay('{{fileInputID}}', '{{userFileDisplayNameID}}', '{{dataFileNameID}}')" style="display:none"><br>
@@ -189,22 +189,82 @@
 	</div>
 	{% if allOutputDataDict["optUpg_upgradeValues"] %}
 	<p class="reportTitle">Ranked Upgrades</p>
-	<div id="optimalUpgradesTable" class="tightContent" style="max-height:300px; overflow-y: auto;">
-		<table style='margin:5px;width:990px;'>
-			<tr>
-			{% for header in allOutputDataDict["optUpg_upgradeHeadings"] %}
-				<th>{{ header }}</th>
-			{% endfor %}
-			</tr>
-			{% for values in allOutputDataDict["optUpg_upgradeValues"] %}
-			<tr>
-				{% for val in values %}
-				<td>{{ val }}</td>
+	<div id="optimalUpgradesTable" class="tightContent" style="max-height:340px; overflow-y: auto;">
+		<p id="optUpgSortStatus" style="margin:8px 5px 0 5px;font-size:0.8em;"></p>
+		<p style="margin:2px 5px 6px 5px;font-size:0.8em;color:#555555;">{{ allOutputDataDict["optUpg_defaultSortNote"] }}</p>
+		<table id="optUpgUpgradeTable" style='margin:5px;width:990px;'>
+			<thead>
+				<tr>
+				{% for header in allOutputDataDict["optUpg_upgradeHeadings"] %}
+					<th style="cursor:pointer;" title="Click to sort by {{ header }}" onclick="sortOptUpgTable({{ loop.index0 }})">{{ header }}<span class="optUpgSortArrow"></span></th>
 				{% endfor %}
-			</tr>
+				</tr>
+			</thead>
+			<tbody>
+			{% for values in allOutputDataDict["optUpg_upgradeValues"] %}
+				{% set rowIndex = loop.index0 %}
+				<tr>
+					{% for val in values %}
+					<td data-sort="{{ allOutputDataDict['optUpg_upgradeSortValues'][rowIndex][loop.index0] }}">{{ val }}</td>
+					{% endfor %}
+				</tr>
 			{% endfor %}
+			</tbody>
 		</table>
 	</div>
+	<script type="text/javascript">
+		var optUpgSortColumn = {{ allOutputDataDict["optUpg_defaultSortColumn"] }};
+		var optUpgSortAscending = {{ 'true' if allOutputDataDict["optUpg_defaultSortDirection"] == 'asc' else 'false' }};
+
+		function sortOptUpgTable(columnIndex, keepDirection) {
+			if (!keepDirection) {
+				if (columnIndex === optUpgSortColumn) {
+					optUpgSortAscending = !optUpgSortAscending;
+				} else {
+					optUpgSortAscending = true;
+				}
+			}
+			optUpgSortColumn = columnIndex;
+			var table = document.getElementById("optUpgUpgradeTable");
+			var body = table.getElementsByTagName("tbody")[0];
+			var rows = Array.prototype.slice.call(body.getElementsByTagName("tr"));
+			rows.sort(function (rowA, rowB) {
+				var a = rowA.getElementsByTagName("td")[columnIndex].getAttribute("data-sort");
+				var b = rowB.getElementsByTagName("td")[columnIndex].getAttribute("data-sort");
+				// Blank cells always sort to the bottom
+				if (a === "" && b === "") { return 0; }
+				if (a === "") { return 1; }
+				if (b === "") { return -1; }
+				var numberA = parseFloat(a);
+				var numberB = parseFloat(b);
+				var result;
+				if (!isNaN(numberA) && !isNaN(numberB)) {
+					result = numberA - numberB;
+				} else {
+					result = String(a).toLowerCase().localeCompare(String(b).toLowerCase());
+				}
+				return optUpgSortAscending ? result : -result;
+			});
+			for (var i = 0; i < rows.length; i++) {
+				body.appendChild(rows[i]);
+			}
+			var headers = table.getElementsByTagName("th");
+			for (var j = 0; j < headers.length; j++) {
+				var arrow = headers[j].getElementsByClassName("optUpgSortArrow")[0];
+				if (j === columnIndex) {
+					arrow.innerHTML = optUpgSortAscending ? " &#9650;" : " &#9660;";
+					headers[j].style.textDecoration = "underline";
+				} else {
+					arrow.innerHTML = "";
+					headers[j].style.textDecoration = "none";
+				}
+			}
+			var headerText = headers[columnIndex].firstChild.textContent.trim();
+			document.getElementById("optUpgSortStatus").innerHTML = "<b>Sorted by:</b> " + headerText + " (" + (optUpgSortAscending ? "lowest first" : "highest first") + ")";
+		}
+
+		sortOptUpgTable(optUpgSortColumn, true);
+	</script>
 	{% endif %}
 	{% if allOutputDataDict["optUpg_constraintValues"] %}
 	<p class="reportTitle">Binding Constraints Relieved by Each Upgrade</p>
