@@ -187,6 +187,49 @@
 			plotGraph("optUpg_hcFigure", allOutputData["optUpg_hcFigure"])
 		</script>
 	</div>
+	{% if allOutputDataDict["optUpg_circuitMap"] %}
+	<p class="reportTitle">Circuit Map</p>
+	<p id="optUpgMapStatus" style="width:980px;padding:0 10px;margin:0 auto 6px auto;font-size:0.8em;color:#555555;">Click an Asset ID in the Ranked Upgrades table to highlight it on this map.</p>
+	<div id="optUpgCircuitMap" class="tightContent"></div>
+	<script>
+		// The map document keeps its Leaflet map on LeafletLayer, which is a global inside that
+		// document but is not reachable as a property of its window. So one small function is
+		// appended to the map document, and this page calls it to do the highlighting.
+		var optUpgMapHelper = '<script>' +
+			'window.omfHighlightAsset = function (points, label) {' +
+			'  try {' +
+			'    if (!LeafletLayer.map) { return false; }' +
+			'    if (window.omfHighlight) { LeafletLayer.map.removeLayer(window.omfHighlight); }' +
+			'    window.omfHighlight = points.length > 1' +
+			'      ? L.polyline(points, {color: "#d62728", weight: 8, opacity: 0.9})' +
+			'      : L.circleMarker(points[0], {radius: 16, color: "#d62728", weight: 4, fill: false});' +
+			'    window.omfHighlight.addTo(LeafletLayer.map);' +
+			'    window.omfHighlight.bindTooltip(label, {permanent: true, direction: "top"}).openTooltip();' +
+			'    LeafletLayer.map.flyTo(points[0], 18, {duration: 0.5});' +
+			'    return true;' +
+			'  } catch (err) { return false; }' +
+			'};' +
+			'<\/script>';
+		var optUpgMapContent = allOutputData["optUpg_circuitMap"]
+		var optUpgMapFrame = document.createElement('iframe');
+		optUpgMapFrame.style = 'width:1000px; height:800px; border-radius:8px;'
+		document.getElementById('optUpgCircuitMap').appendChild(optUpgMapFrame);
+		optUpgMapFrame.contentWindow.document.open();
+		optUpgMapFrame.contentWindow.document.write(optUpgMapContent + optUpgMapHelper);
+		optUpgMapFrame.contentWindow.document.close();
+
+		function jumpToAssetOnMap(assetName) {
+			var target = allOutputData["optUpg_assetPairings"][assetName];
+			var status = document.getElementById("optUpgMapStatus");
+			if (!optUpgMapFrame.contentWindow.omfHighlightAsset || !optUpgMapFrame.contentWindow.omfHighlightAsset(target.points, assetName)) {
+				status.innerHTML = "The map is still loading. Click " + assetName + " again in a moment.";
+				return;
+			}
+			status.innerHTML = "Showing <b>" + assetName + "</b> on the map. " + target.note;
+			document.getElementById("optUpgCircuitMap").scrollIntoView({block: "center"});
+		}
+	</script>
+	{% endif %}
 	{% if allOutputDataDict["optUpg_upgradeValues"] %}
 	<p class="reportTitle">Ranked Upgrades</p>
 	<div id="optimalUpgradesTable" class="tightContent" style="max-height:340px; overflow-y: auto;">
@@ -205,7 +248,13 @@
 				{% set rowIndex = loop.index0 %}
 				<tr>
 					{% for val in values %}
-					<td data-sort="{{ allOutputDataDict['optUpg_upgradeSortValues'][rowIndex][loop.index0] }}">{{ val }}</td>
+					<td data-sort="{{ allOutputDataDict['optUpg_upgradeSortValues'][rowIndex][loop.index0] }}">
+					{%- if loop.index0 == allOutputDataDict["optUpg_assetColumnIndex"] and val in allOutputDataDict["optUpg_assetPairings"] -%}
+						<a href="#" onclick="jumpToAssetOnMap('{{ val }}'); return false;" title="Highlight {{ val }} on the circuit map">{{ val }}</a>
+					{%- else -%}
+						{{ val }}
+					{%- endif -%}
+					</td>
 					{% endfor %}
 				</tr>
 			{% endfor %}

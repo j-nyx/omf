@@ -50,6 +50,53 @@ def checkCircuitSolar(modelDir, inputDict: dict):
 	return returningKW
 
 
+def pairAssetsToCircuitObjects(pathToOmd, assetIds: list) -> dict:
+	'''
+	Pairs each decaf asset with the circuit object the map should highlight for it.
+
+	A regulator control is not drawn on the map, but the transformer it acts on and the bus it
+	sits on both are. So for every upgraded asset we read the .omd, follow its "transformer"
+	field and then its "parent" field to the equipment it is attached to, and save that pairing.
+	The output page highlights the saved object when the user clicks the asset.
+	'''
+	with open(pathToOmd) as omdFile:
+		omd = json.load(omdFile)
+	objectsByName = {}
+	for treeObject in omd["tree"].values():
+		objectName = str(treeObject.get("name", "")).lower()
+		if objectName != "":
+			objectsByName[objectName] = treeObject
+
+	assetPairings = {}
+	for assetId in assetIds:
+		# An asset that is not an object in this circuit gets no pairing, and the output page
+		# then leaves it as plain text instead of a link
+		assetObject = objectsByName.get(str(assetId).lower())
+		if assetObject is not None:
+			# Follow the asset to the equipment it is attached to. A regulator control names the
+			# transformer it acts on, and most other control objects name the bus they sit on as
+			# their parent. Prefer the transformer, and fall back to the parent bus.
+			pairedName = str(assetObject.get("transformer") or assetObject.get("parent") or "").lower()
+			pairedObject = objectsByName.get(pairedName, assetObject)
+			# A bus carries its own coordinates. A transformer or line is drawn between the two
+			# buses named in its "from" and "to" fields, so look those up.
+			points = []
+			if "latitude" in pairedObject and "longitude" in pairedObject:
+				points = [[float(pairedObject["latitude"]), float(pairedObject["longitude"])]]
+			elif "from" in pairedObject and "to" in pairedObject:
+				for endName in [pairedObject["from"], pairedObject["to"]]:
+					endObject = objectsByName.get(str(endName).lower())
+					if endObject is not None and "latitude" in endObject and "longitude" in endObject:
+						points.append([float(endObject["latitude"]), float(endObject["longitude"])])
+			# Without coordinates there is nothing to highlight, so again no pairing is saved
+			if len(points) > 0:
+				note = ""
+				if pairedObject is not assetObject:
+					note = f"{assetId} is not drawn on the map, so the {pairedObject.get('object', 'object')} it is attached to, {pairedObject.get('name', '')}, is highlighted instead."
+				assetPairings[assetId] = {"points": points, "note": note}
+	return assetPairings
+
+
 def processOptimalUpgrades(results: dict) -> dict:
 	'''
 	Turns the decaf.optimal_upgrades result dict into tables and a figure for the HTML template.
@@ -169,6 +216,8 @@ def processOptimalUpgrades(results: dict) -> dict:
 			])
 	outData["optUpg_upgradeValues"] = upgradeRows
 	outData["optUpg_upgradeSortValues"] = upgradeSortRows
+	# The template turns this column into a link that highlights the asset on the circuit map
+	outData["optUpg_assetColumnIndex"] = outData["optUpg_upgradeHeadings"].index("Asset ID")
 
 	# Binding constraints that the upgrades were chosen to relieve
 	outData["optUpg_constraintHeadings"] = [
@@ -341,6 +390,12 @@ def work(modelDir, inputDict: dict) -> dict:
 		json.dump(optimalUpgradesResults, fp)
 
 	outData.update( processOptimalUpgrades( json.load(open(optiUpgradesFile)) ) )
+
+	# Circuit map, built and read back the same way hostingCapacity does it
+	omf.geo.map_omd(pathToOmd, modelDir, open_browser=False)
+	outData['optUpg_circuitMap'] = open(Path(modelDir, 'geoJson_offline.html'), 'r').read()
+	upgradeAssetIds = [upgrade.get('asset_id') for upgrade in (optimalUpgradesResults.get('upgrades') or [])]
+	outData['optUpg_assetPairings'] = pairAssetsToCircuitObjects(pathToOmd, upgradeAssetIds)
 
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
