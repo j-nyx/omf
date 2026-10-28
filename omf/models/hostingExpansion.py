@@ -97,6 +97,27 @@ def pairAssetsToCircuitObjects(pathToOmd, assetIds: list) -> dict:
 	return assetPairings
 
 
+def processProtectionAnalysis(results: pd.DataFrame) -> dict:
+	'''
+	Turns decaf protection analysis results into a table for the HTML template.
+
+	"rf" is reverse power flow, "ui" is unintentional islanding
+	"p" is real power in kW and "q" is reactive power in kvar.
+	'''
+	outData = {}
+	outData["protection_tableHeadings"] = [
+		"Bus",
+		"Reverse Power Flow Minimum Headroom (kW)",
+		"Unintentional Islanding Minimum Headroom (kW)",
+		"Unintentional Islanding Minimum Headroom (kvar)",
+	]
+	outData["protection_tableValues"] = [
+		[bus, *values]
+		for bus, values in zip(results.index, results.values.tolist())
+	]
+	return outData
+
+
 def processOptimalUpgrades(results: dict) -> dict:
 	'''
 	Turns the decaf.optimal_upgrades result dict into tables and a figure for the HTML template.
@@ -276,11 +297,7 @@ def processOptimalUpgrades(results: dict) -> dict:
 	return outData
 
 
-def work(modelDir, inputDict: dict) -> dict:
-	''' Run the model in its directory. '''
-	# Delete output file every run if it exists
-	outData = {}
-	# Model operations goes here.
+def _runTSLoad(modelDir, inputDict: dict, outData: dict) -> None:
 	lat = float( inputDict['latitude'] )
 	long = float( inputDict['longitude'] )
 	year = int( inputDict['year'] )
@@ -376,26 +393,49 @@ def work(modelDir, inputDict: dict) -> dict:
 		}
 	)
 	outData['scatterFigure'] = json.dumps( scatterFigure, cls=pu.PlotlyJSONEncoder )
-	feederName = [x for x in os.listdir(modelDir) if x.endswith('.omd')][0]
-	pathToOmd = Path(modelDir, feederName)
-	tree = opendss.dssConvert.omdToTree(pathToOmd)
-	opendss.dssConvert.treeToDss(tree, Path(modelDir, 'circuit.dss'))
 
-	#TODO: Check if the site_id is an actual bus in the circuit before we call optimal_upgrades
-	site_id = inputDict.get("siteID")
-	target_hc_mw = float(inputDict.get("targetHCMW"))
-	optimalUpgradesResults = decaf_cl.ia_toplevel.optimal_upgrades(site_id=site_id, target_hc_mw=target_hc_mw)
-	optiUpgradesFile = Path(modelDir, 'output_optiUpgrResults.json')
-	with open(optiUpgradesFile, 'w') as fp:
-		json.dump(optimalUpgradesResults, fp)
 
-	outData.update( processOptimalUpgrades( json.load(open(optiUpgradesFile)) ) )
+def work(modelDir, inputDict: dict) -> dict:
+	''' Run the model in its directory. '''
+	outData = {}
+	if inputDict.get("runTSLoad", "on") == "on":
+		_runTSLoad(modelDir, inputDict, outData)
 
-	# Circuit map, built and read back the same way hostingCapacity does it
-	omf.geo.map_omd(pathToOmd, modelDir, open_browser=False)
-	outData['optUpg_circuitMap'] = open(Path(modelDir, 'geoJson_offline.html'), 'r').read()
-	upgradeAssetIds = [upgrade.get('asset_id') for upgrade in (optimalUpgradesResults.get('upgrades') or [])]
-	outData['optUpg_assetPairings'] = pairAssetsToCircuitObjects(pathToOmd, upgradeAssetIds)
+	runOptimalUpgrades = inputDict.get("runOptimalUpgrades", "on") == "on"
+	runProtectionAnalysis = inputDict.get("runProtectionAnalysis", "off") == "on"
+	pathToOmd = Path(modelDir, inputDict["feederName1"] + ".omd")
+	if runOptimalUpgrades or runProtectionAnalysis:
+		tree = opendss.dssConvert.omdToTree(pathToOmd)
+		circuitDssFile = Path(modelDir, 'circuit.dss')
+		opendss.dssConvert.treeToDss(tree, circuitDssFile)
+
+	if runOptimalUpgrades:
+		#TODO: Check if the site_id is an actual bus in the circuit before we call optimal_upgrades
+		site_id = inputDict.get("siteID")
+		target_hc_mw = float(inputDict.get("targetHCMW"))
+		optimalUpgradesResults = decaf_cl.ia_toplevel.optimal_upgrades(site_id=site_id, target_hc_mw=target_hc_mw)
+		optiUpgradesFile = Path(modelDir, 'output_optiUpgrResults.json')
+		with open(optiUpgradesFile, 'w') as fp:
+			json.dump(optimalUpgradesResults, fp)
+
+		outData.update( processOptimalUpgrades( json.load(open(optiUpgradesFile)) ) )
+
+		# Circuit map, built and read back the same way hostingCapacity does it
+		omf.geo.map_omd(pathToOmd, modelDir, open_browser=False)
+		outData['optUpg_circuitMap'] = open(Path(modelDir, 'geoJson_offline.html'), 'r').read()
+		upgradeAssetIds = [upgrade.get('asset_id') for upgrade in (optimalUpgradesResults.get('upgrades') or [])]
+		outData['optUpg_assetPairings'] = pairAssetsToCircuitObjects(pathToOmd, upgradeAssetIds)
+
+	if runProtectionAnalysis:
+		protectionAnalysisDataFile = Path(modelDir, inputDict["protectionAnalysisDataFileName"])
+		if not protectionAnalysisDataFile.is_file():
+			raise FileNotFoundError(f"Protection analysis data CSV not found: {protectionAnalysisDataFile}")
+		protectionAnalysisResults = decaf_cl.protection_analysis(
+			ami_fp=protectionAnalysisDataFile,
+			ckt_dss_fp=circuitDssFile,
+			is_single_file_model=1,
+		)
+		outData.update(processProtectionAnalysis(protectionAnalysisResults))
 
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
@@ -413,6 +453,8 @@ def new(modelDir):
 	derPipelineFilePath = Path(omf.omfDir,'static','testFiles', 'hostingExpansion', derPipelineFileName)
 	newInterconnFileName = "input_newInterconnData.csv"
 	newInterconnFilePath = Path(omf.omfDir,'static','testFiles', 'hostingExpansion', newInterconnFileName)
+	protectionAnalysisFileName = "20260129-iowa_240_synthetic_ami_short_04.csv"
+	protectionAnalysisFilePath = Path(omf.omfDir,'static','testFiles', 'hostingExpansion', protectionAnalysisFileName)
 
 	defaultInputs = {
 		"user": "admin",
@@ -427,6 +469,7 @@ def new(modelDir):
 		"derPipelineDataFileName": derPipelineFileName,
 		"newInterconnUIDisplay": newInterconnFileName,
 		"newInterconnDataFileName": newInterconnFileName,
+		"runTSLoad": "on",
 		"longitude": "-94.67",
 		"latitude": "39.10",
 		"year": "2024",
@@ -435,7 +478,11 @@ def new(modelDir):
 		"tilt": 45,
 		"losses": 15.5,
 		"siteID": "bus3131",
-		"targetHCMW": 1.20
+		"targetHCMW": 1.20,
+		"runOptimalUpgrades": "on",
+		"runProtectionAnalysis": "off",
+		"protectionAnalysisUIDisplay": protectionAnalysisFileName,
+		"protectionAnalysisDataFileName": protectionAnalysisFileName
 	}
 
 	creationCode = __neoMetaModel__.new(modelDir, defaultInputs)
@@ -448,6 +495,7 @@ def new(modelDir):
 		shutil.copyfile( ScadaFilePath, Path(modelDir, ScadaFileName) )
 		shutil.copyfile( derPipelineFilePath, Path(modelDir, derPipelineFileName))
 		shutil.copyfile( newInterconnFilePath, Path(modelDir, newInterconnFileName))
+		shutil.copyfile(protectionAnalysisFilePath, Path(modelDir, protectionAnalysisFileName))
 	except:
 		return False
 	return creationCode

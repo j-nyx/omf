@@ -6,7 +6,7 @@ import json
 _decafDir = Path(__file__).parent
 
 # from .ts_load import decaf_ts_load as ts_load
-# from .sandia_toplevel import protection_analysis
+from .sandia_toplevel import protection_analysis
 from .ia_toplevel import (
     feeder_situation_awareness as run_pipeline,
     optimal_upgrades,
@@ -26,13 +26,13 @@ def run_all_tests():
         "array_type": 2 }
     # ts_load(_decafDir / 'test_data' / '15_min_local_tz.csv', ts_load_input_dict)
 
-    # print('\n\n**** TESTING PROTECTION_ANALYSIS ****')
-    # protection_result = protection_analysis(
-    #         # database_fp = _decafDir / 'temp_delme'/ 'delme_temp.db',  # temporary file location
-    #         ami_fp = _decafDir / 'test_data' / 'iowa240' / 'demand_source_files' / "20260129-iowa_240_synthetic_ami_short_04.csv",
-    #         ckt_dss_fp= _decafDir / 'test_data' / 'iowa240' / 'main_no_profiles.dss',
-    #         is_single_file_model= 0,
-    #             )
+    print('\n\n**** TESTING PROTECTION_ANALYSIS ****')
+    protection_result = protection_analysis(
+            # database_fp = _decafDir / 'temp_delme'/ 'delme_temp.db',  # temporary file location
+            ami_fp = _decafDir / 'test_data' / 'iowa240' / 'demand_source_files' / "20260129-iowa_240_synthetic_ami_short_04.csv",
+            ckt_dss_fp= _decafDir / 'test_data' / 'iowa240' / 'main_no_profiles.dss',
+            is_single_file_model= 0,
+                )
     
     print('\n\n**** TESTING RUN_PIPELINE ****')
     run_pipeline(

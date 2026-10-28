@@ -12,6 +12,7 @@
 		@media print {
 			#optimalUpgradesTable {overflow-y:visible !important; max-height:none !important;}
 			#bindingConstraintsTable {overflow-y:visible !important; max-height:none !important;}
+			#protectionAnalysisTable {overflow-y:visible !important; max-height:none !important;}
 		}
 	</style>
 	<script src="{{pathPrefix}}/static/highcharts4.src.js"></script>
@@ -62,10 +63,6 @@
 				<input type="text" id="runTime" name="runTime" value="{{allInputDataDict.runTime}}"readonly/>
 			</div>
 			<!-- Model Specific Inputs -->
-			<div class="wideInput">
-				<p class="inputSectionHeader">Initial Inputs</p>
-			</div>
-			<hr>
 			<div class="shortInput">
 				<label class="tooltip">Circuit
 					<span class="classic">Open Circuit Editor</span>
@@ -73,10 +70,10 @@
 				<button id="feederButton" type="button" onclick="javascript:editFeeder(allInputData.modelName,1);" style="display:block;width:125px;">Open Editor</button>
 				<input type="text" id="feederName1" name="feederName1" value="{{allInputDataDict.feederName1}}" style="display:none">
 			</div>
-			<div class="shortInput">
-				<label class="tooltip">AMI Data Input File <span class="classic">Upload a .csv file of meter data. Format for input columns: busname, datetime, v, kW, kVAR.</span></label>
-				<div>{{ file_upload('AmiDataFile', 'AmiUIDisplay', 'AmiDataFileName') }}</div>
+			<div class="wideInput">
+				<p class="inputSectionHeader">Inputs</p>
 			</div>
+			<hr>
 			<div class="shortInput">
 				<label class="tooltip">SCADA Data Input File <span class="classic">Upload a .csv file of scada data. Format for input columns: busname, datetime, kVa, kVb, kVc, MWa, MWb, MWc, MVARa, MVARb, MVARc.</span></label>
 				<div>{{ file_upload('ScadaDataFile', 'ScadaUIDisplay', 'ScadaDataFileName') }}</div>
@@ -88,6 +85,21 @@
 			<div class="shortInput">
 				<label class="tooltip">New Interconnection Input File <span class="classic">Upload a .csv file. Format for input columns: busname, kVA, tbd_solar_settings.</span></label>
 				<div>{{ file_upload('newInterconnDataFile', 'newInterconnUIDisplay', 'newInterconnDataFileName') }}</div>
+			</div>
+			<div class="wideInput">
+				<p class="inputSectionHeader">TS Load</p>
+			</div>
+			<hr>
+			<div class="shorterInput">
+				<label>Apply TS_Load</label>
+				<select id="runTSLoad" name="runTSLoad" value="{{allInputDataDict.runTSLoad}}" required>
+					<option value="off" {% if allInputDataDict.runTSLoad == 'off' %}selected{% endif %}>Off</option>
+					<option value="on" {% if allInputDataDict.runTSLoad != 'off' %}selected{% endif %}>On</option>
+				</select>
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">AMI Data Input File <span class="classic">Upload a .csv file of meter data. Format for input columns: busname, datetime, v, kW, kVAR.</span></label>
+				<div>{{ file_upload('AmiDataFile', 'AmiUIDisplay', 'AmiDataFileName') }}</div>
 			</div>
 			<div class="wideInput">
 				<p class="inputSectionHeader">PV Specifications</p>
@@ -121,7 +133,15 @@
 				<input type="text" id="losses" name="losses" value="{{allInputDataDict.losses}}" pattern="^\d+\.?\d*$" required="required"/>
 			</div>
 			<div class="wideInput">
-				<p class="inputSectionHeader">Optimal Upgrades Specifications</p>
+				<p class="inputSectionHeader">Optimal Upgrades</p>
+			</div>
+			<hr>
+			<div class="shorterInput">
+				<label>Apply Optimal Upgrades</label>
+				<select id="runOptimalUpgrades" name="runOptimalUpgrades" value="{{allInputDataDict.runOptimalUpgrades}}" required>
+					<option value="off" {% if allInputDataDict.runOptimalUpgrades == 'off' %}selected{% endif %}>Off</option>
+					<option value="on" {% if allInputDataDict.runOptimalUpgrades != 'off' %}selected{% endif %}>On</option>
+				</select>
 			</div>
 			<div class="shorterInput">
 				<label class="tooltip">Site ID<span class="classic">bus name or site id. ex: "bus3131"</span></label>
@@ -131,12 +151,28 @@
 				<label class="tooltip">Target Hosting Capacity (mW) <span class="classic">Target Hosting Capacity in mW.</span></label>
 				<input type="text" id="targetHCMW" name="targetHCMW" value="{{allInputDataDict.targetHCMW}}" pattern="^\d+\.?\d*$" required="required"/>
 			</div>
+			<div class="wideInput">
+				<p class="inputSectionHeader">Protection Analysis</p>
+			</div>
+			<hr>
+			<div class="shorterInput">
+				<label>Apply Protection Analysis</label>
+				<select id="runProtectionAnalysis" name="runProtectionAnalysis" value="{{allInputDataDict.runProtectionAnalysis}}" required>
+					<option value="off" {% if allInputDataDict.runProtectionAnalysis != 'on' %}selected{% endif %}>Off</option>
+					<option value="on" {% if allInputDataDict.runProtectionAnalysis == 'on' %}selected{% endif %}>On</option>
+				</select>
+			</div>
+			<div class="shortInput">
+				<label class="tooltip">Protection Analysis Results CSV <span class="classic">Upload the protection analysis results .csv file.</span></label>
+				<div>{{ file_upload('protectionAnalysisDataFile', 'protectionAnalysisUIDisplay', 'protectionAnalysisDataFileName') }}</div>
+			</div>
 		{{ omfModelButtons }}
 		</form>
 	</div>
 	{{ omfRunDebugBlock }}
 	{% if modelStatus == 'finished' %}
 	<!-- Output tables, graphs, etc -->
+	{% if allInputDataDict.get('runTSLoad', 'on') == 'on' %}
 	<p class="reportTitle">Total Load vs PySAM PVWatts Output</p>
 			<div id="scatterFigure" class="tightContent">
 				<div id="scatterFigure" style="width:1000px"></div>
@@ -144,8 +180,10 @@
 					plotGraph("scatterFigure", allOutputData["scatterFigure"])
 				</script>
 			</div>
+	{% endif %}
 	<!-- Optimal Upgrades Outputs -->
 	<style>td, th {padding:7 0 5 20;text-align: left;font-size:0.8em; border: 1px solid #cccccc;} </style>
+	{% if allInputDataDict.get('runOptimalUpgrades', 'on') == 'on' %}
 	{% if not allOutputDataDict['optUpg_success'] %}
 	<p class="reportTitle" style="page-break-before:always;"><b>Optimal Upgrades Warning</b></p>
 	<div id="optimalUpgradesWarning" class="tightContent">
@@ -334,6 +372,27 @@
 		</table>
 	</div>
 	{% endif %}
+	{% endif %}
+	<!-- Protection Analysis Outputs, shown independently of the optimal upgrades result -->
+	{% endif %}
+	{% if allInputDataDict.get('runProtectionAnalysis', 'off') == 'on' and allOutputDataDict["protection_tableValues"] %}
+	<p class="reportTitle">Protection Analysis Results</p>
+	<div id="protectionAnalysisTable" class="tightContent" style="max-height:300px; overflow-y: auto;">
+		<table style='margin:5px;width:990px;'>
+			<tr>
+			{% for header in allOutputDataDict["protection_tableHeadings"] %}
+				<th>{{ header }}</th>
+			{% endfor %}
+			</tr>
+			{% for values in allOutputDataDict["protection_tableValues"] %}
+			<tr>
+				{% for val in values %}
+				<td>{{ val }}</td>
+				{% endfor %}
+			</tr>
+			{% endfor %}
+		</table>
+	</div>
 	{% endif %}
 	<div id="output">
 		{{ rawOutputFiles }}

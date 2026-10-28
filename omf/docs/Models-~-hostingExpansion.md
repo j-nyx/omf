@@ -4,6 +4,14 @@ The hosting expansion model is an extension of the hosting capacity model. Its c
 
 Documentation for PySAM PVWattsv8 [can be found here](https://nrel-pysam.readthedocs.io/en/main/modules/Pvwattsv8.html#pvwattsv8)
 
+### Analysis Sections
+
+The model inputs are grouped by the analysis they control:
+
+* **TS Load** runs the AMI/PVWatts load-versus-solar comparison and includes the PV specifications. It is on by default.
+* **Optimal Upgrades** runs the optimal-upgrades analysis using the selected circuit and site/target specifications. It is on by default.
+* **Protection Analysis** reads the uploaded protection-analysis results CSV when enabled. It is off by default; upload the results CSV before turning it on.
+
 ## Walkthrough
 
 ### Defining the Inputs <br />
