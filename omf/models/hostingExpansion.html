@@ -163,7 +163,7 @@
 				</select>
 			</div>
 			<div class="shortInput">
-				<label class="tooltip">Protection Analysis Results CSV <span class="classic">Upload the protection analysis results .csv file.</span></label>
+				<label class="tooltip">Protection Analysis AMI Data <span class="classic">Upload the protection analysis AMI data .csv file</span></label>
 				<div>{{ file_upload('protectionAnalysisDataFile', 'protectionAnalysisUIDisplay', 'protectionAnalysisDataFileName') }}</div>
 			</div>
 		{{ omfModelButtons }}
@@ -225,49 +225,6 @@
 			plotGraph("optUpg_hcFigure", allOutputData["optUpg_hcFigure"])
 		</script>
 	</div>
-	{% if allOutputDataDict["optUpg_circuitMap"] %}
-	<p class="reportTitle">Circuit Map</p>
-	<p id="optUpgMapStatus" style="width:980px;padding:0 10px;margin:0 auto 6px auto;font-size:0.8em;color:#555555;">Click an Asset ID in the Ranked Upgrades table to highlight it on this map.</p>
-	<div id="optUpgCircuitMap" class="tightContent"></div>
-	<script>
-		// The map document keeps its Leaflet map on LeafletLayer, which is a global inside that
-		// document but is not reachable as a property of its window. So one small function is
-		// appended to the map document, and this page calls it to do the highlighting.
-		var optUpgMapHelper = '<script>' +
-			'window.omfHighlightAsset = function (points, label) {' +
-			'  try {' +
-			'    if (!LeafletLayer.map) { return false; }' +
-			'    if (window.omfHighlight) { LeafletLayer.map.removeLayer(window.omfHighlight); }' +
-			'    window.omfHighlight = points.length > 1' +
-			'      ? L.polyline(points, {color: "#d62728", weight: 8, opacity: 0.9})' +
-			'      : L.circleMarker(points[0], {radius: 16, color: "#d62728", weight: 4, fill: false});' +
-			'    window.omfHighlight.addTo(LeafletLayer.map);' +
-			'    window.omfHighlight.bindTooltip(label, {permanent: true, direction: "top"}).openTooltip();' +
-			'    LeafletLayer.map.flyTo(points[0], 18, {duration: 0.5});' +
-			'    return true;' +
-			'  } catch (err) { return false; }' +
-			'};' +
-			'<\/script>';
-		var optUpgMapContent = allOutputData["optUpg_circuitMap"]
-		var optUpgMapFrame = document.createElement('iframe');
-		optUpgMapFrame.style = 'width:1000px; height:800px; border-radius:8px;'
-		document.getElementById('optUpgCircuitMap').appendChild(optUpgMapFrame);
-		optUpgMapFrame.contentWindow.document.open();
-		optUpgMapFrame.contentWindow.document.write(optUpgMapContent + optUpgMapHelper);
-		optUpgMapFrame.contentWindow.document.close();
-
-		function jumpToAssetOnMap(assetName) {
-			var target = allOutputData["optUpg_assetPairings"][assetName];
-			var status = document.getElementById("optUpgMapStatus");
-			if (!optUpgMapFrame.contentWindow.omfHighlightAsset || !optUpgMapFrame.contentWindow.omfHighlightAsset(target.points, assetName)) {
-				status.innerHTML = "The map is still loading. Click " + assetName + " again in a moment.";
-				return;
-			}
-			status.innerHTML = "Showing <b>" + assetName + "</b> on the map. " + target.note;
-			document.getElementById("optUpgCircuitMap").scrollIntoView({block: "center"});
-		}
-	</script>
-	{% endif %}
 	{% if allOutputDataDict["optUpg_upgradeValues"] %}
 	<p class="reportTitle">Ranked Upgrades</p>
 	<div id="optimalUpgradesTable" class="tightContent" style="max-height:340px; overflow-y: auto;">
@@ -299,6 +256,11 @@
 			</tbody>
 		</table>
 	</div>
+	<!--
+	Following script is generated via Claude.
+	It sorts the Ranked Upgrades table by the column clicked, and toggles ascending/descending order if the same column is clicked again.
+	It also updates the sort status text above the table to indicate which column is currently sorted and in which direction.
+	-->
 	<script type="text/javascript">
 		var optUpgSortColumn = {{ allOutputDataDict["optUpg_defaultSortColumn"] }};
 		var optUpgSortAscending = {{ 'true' if allOutputDataDict["optUpg_defaultSortDirection"] == 'asc' else 'false' }};
@@ -375,6 +337,49 @@
 	{% endif %}
 	<!-- Protection Analysis Outputs, shown independently of the optimal upgrades result -->
 	{% endif %}
+	{% if allOutputDataDict["circuitMap"] %}
+	<p class="reportTitle">Circuit Map</p>
+	<p id="optUpgMapStatus" style="width:980px;padding:0 10px;margin:0 auto 6px auto;font-size:0.8em;color:#555555;">{% if allOutputDataDict["optUpg_upgradeValues"] %}Click an Asset ID in the Ranked Upgrades table to highlight it on this map. {% endif %}{% if allOutputDataDict["protection_tableValues"] %}Buses are colored by the protection analysis results. Use the map's color menu to switch between the reported limits.{% endif %}</p>
+	<div id="optUpgCircuitMap" class="tightContent"></div>
+	<script>
+		// The map document keeps its Leaflet map on LeafletLayer, which is a global inside that
+		// document but is not reachable as a property of its window. So one small function is
+		// appended to the map document, and this page calls it to do the highlighting.
+		var optUpgMapHelper = '<script>' +
+			'window.omfHighlightAsset = function (points, label) {' +
+			'  try {' +
+			'    if (!LeafletLayer.map) { return false; }' +
+			'    if (window.omfHighlight) { LeafletLayer.map.removeLayer(window.omfHighlight); }' +
+			'    window.omfHighlight = points.length > 1' +
+			'      ? L.polyline(points, {color: "#d62728", weight: 8, opacity: 0.9})' +
+			'      : L.circleMarker(points[0], {radius: 16, color: "#d62728", weight: 4, fill: false});' +
+			'    window.omfHighlight.addTo(LeafletLayer.map);' +
+			'    window.omfHighlight.bindTooltip(label, {permanent: true, direction: "top"}).openTooltip();' +
+			'    LeafletLayer.map.flyTo(points[0], 18, {duration: 0.5});' +
+			'    return true;' +
+			'  } catch (err) { return false; }' +
+			'};' +
+			'<\/script>';
+		var optUpgMapContent = allOutputData["circuitMap"]
+		var optUpgMapFrame = document.createElement('iframe');
+		optUpgMapFrame.style = 'width:1000px; height:800px; border-radius:8px;'
+		document.getElementById('optUpgCircuitMap').appendChild(optUpgMapFrame);
+		optUpgMapFrame.contentWindow.document.open();
+		optUpgMapFrame.contentWindow.document.write(optUpgMapContent + optUpgMapHelper);
+		optUpgMapFrame.contentWindow.document.close();
+
+		function jumpToAssetOnMap(assetName) {
+			var target = allOutputData["optUpg_assetPairings"][assetName];
+			var status = document.getElementById("optUpgMapStatus");
+			if (!optUpgMapFrame.contentWindow.omfHighlightAsset || !optUpgMapFrame.contentWindow.omfHighlightAsset(target.points, assetName)) {
+				status.innerHTML = "The map is still loading. Click " + assetName + " again in a moment.";
+				return;
+			}
+			status.innerHTML = "Showing <b>" + assetName + "</b> on the map. " + target.note;
+			document.getElementById("optUpgCircuitMap").scrollIntoView({block: "center"});
+		}
+	</script>
+	{% endif %}
 	{% if allInputDataDict.get('runProtectionAnalysis', 'off') == 'on' and allOutputDataDict["protection_tableValues"] %}
 	<p class="reportTitle">Protection Analysis Results</p>
 	<div id="protectionAnalysisTable" class="tightContent" style="max-height:300px; overflow-y: auto;">
@@ -393,6 +398,36 @@
 			{% endfor %}
 		</table>
 	</div>
+	{% endif %}
+	{% if allInputDataDict.get('runProtectionAnalysis', 'off') == 'on' and allOutputDataDict["check_busNames"] %}
+	<p class="reportTitle">Check My System</p>
+	<p style="width:980px;padding:0 10px;margin:0 auto 6px auto;font-size:0.8em;color:#555555;">Pick a bus to test the System Capacity entered above against the headroom the protection analysis reported for that bus.</p>
+	<div id="checkMySystem" class="tightContent">
+		<div style="padding:10px;">
+			<label for="checkBusName" style="font-size:0.8em;padding-right:4px;">Bus</label>
+			<select id="checkBusName" style="width:140px;display:inline-block;" onchange="
+				var busRows = allOutputData['check_rowsByBus'][this.value], rowsHtml = '';
+				for (var i = 0; i < busRows.length; i++) { rowsHtml += '<tr><td>' + busRows[i].join('</td><td>') + '</td></tr>'; }
+				document.getElementById('checkResultsBody').innerHTML = rowsHtml;
+				document.getElementById('checkSummary').innerHTML = allOutputData['check_summaryByBus'][this.value];">
+			{% for busName in allOutputDataDict["check_busNames"] %}
+				<option value="{{ busName }}">{{ busName }}</option>
+			{% endfor %}
+			</select>
+		</div>
+		<p id="checkSummary" style="margin:0 10px 6px 10px;font-size:0.8em;"></p>
+		<table style='margin:5px;width:990px;'>
+			<thead>
+				<tr>
+				{% for header in allOutputDataDict["check_limitHeadings"] %}
+					<th>{{ header }}</th>
+				{% endfor %}
+				</tr>
+			</thead>
+			<tbody id="checkResultsBody"></tbody>
+		</table>
+	</div>
+	<script>document.getElementById("checkBusName").onchange();</script>
 	{% endif %}
 	<div id="output">
 		{{ rawOutputFiles }}

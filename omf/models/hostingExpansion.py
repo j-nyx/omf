@@ -97,6 +97,40 @@ def pairAssetsToCircuitObjects(pathToOmd, assetIds: list) -> dict:
 	return assetPairings
 
 
+def buildCircuitMap(modelDir, pathToOmd, protectionResults) -> str:
+	'''
+	Builds the circuit map the same way hostingCapacity does, and colors it by the protection
+	analysis results when there are any.
+
+	The coloring works by attaching the results csv to a copy of the circuit under
+	"attachments.coloringFiles", which is what the map reads on load.
+
+	Rows the analytic did not report a value for are dropped before attaching. The map parses
+	the csv with dynamic typing, which turns an empty cell into null, and it then calls
+	toString on every cell to build the color scale. One empty cell therefore fails the whole
+	coloring step with "can't access property toString, obj.value is null".
+	'''
+	if protectionResults is None:
+		omf.geo.map_omd(pathToOmd, modelDir, open_browser=False)
+	else:
+		colorCsvFile = Path(modelDir, "output_protectionAnalysisColors.csv")
+		protectionResults.dropna().to_csv(colorCsvFile)
+		startingOmd = json.load(open(pathToOmd))
+		startingOmd["attachments"] = {
+			"coloringFiles": {
+				colorCsvFile.name: {
+					"csv": colorCsvFile.read_text(),
+					"colorOnLoadColumnIndex": "2",
+				}
+			}
+		}
+		colorOmdFile = Path(modelDir, "color.omd")
+		with open(colorOmdFile, "w+") as colorOmd:
+			json.dump(startingOmd, colorOmd, indent=4)
+		omf.geo.map_omd(colorOmdFile, modelDir, open_browser=False)
+	return open(Path(modelDir, "geoJson_offline.html"), "r").read()
+
+
 def processProtectionAnalysis(results: pd.DataFrame) -> dict:
 	'''
 	Turns decaf protection analysis results into a table for the HTML template.
@@ -112,15 +146,73 @@ def processProtectionAnalysis(results: pd.DataFrame) -> dict:
 		"Unintentional Islanding Minimum Headroom (kvar)",
 	]
 	outData["protection_tableValues"] = [
-		[bus, *values]
+		[bus] + values
 		for bus, values in zip(results.index, results.values.tolist())
 	]
 	return outData
 
 
+def buildSystemCheck(results: pd.DataFrame, inputDict: dict) -> dict:
+	'''
+	Builds the "Check My System" box: for every bus in the protection analysis results, the
+	headroom that analytic reported and whether the System Capacity entered on the input form
+	fits inside it.
+
+	The proposed size is the System Capacity input, in kW. The two kW limits are checked
+	against it. The third limit is in kvar and this model has no reactive power input, so its
+	headroom is shown without a pass or fail rather than being compared against a value in
+	different units.
+
+	Every row is worked out here so the output page only has to drop the rows for the selected
+	bus into the table.
+
+
+	This code is generated via Claude
+
+	'''
+	proposedKw = float(inputDict["systemCapacity"])
+	limitDetails = [
+		("Reverse Power Flow Minimum Headroom", "kW", True),
+		("Unintentional Islanding Minimum Headroom, Real Power", "kW", True),
+		("Unintentional Islanding Minimum Headroom, Reactive Power", "kvar", False),
+	]
+	rowsByBus = {}
+	summaryByBus = {}
+	for busName, headroomValues in zip(results.index, results.values.tolist()):
+		# A bus is only offered when the analytic reported every limit for it. A missing value
+		# means that limit was not reported, and nothing is substituted for it.
+		hasEveryLimit = all(pd.notna(headroomValue) for headroomValue in headroomValues)
+		if hasEveryLimit:
+			busRows = []
+			failures = []
+			for (limitName, limitUnits, isChecked), headroomValue in zip(limitDetails, headroomValues):
+				headroom = float(headroomValue)
+				if isChecked:
+					proposedText = f"{proposedKw:,.2f} {limitUnits}"
+					result = "PASS" if proposedKw <= headroom else "FAIL"
+					if result == "FAIL":
+						failures.append(limitName)
+				else:
+					proposedText = "N/A"
+					result = "Not checked, no reactive power input"
+				busRows.append([limitName, f"{headroom:,.2f} {limitUnits}", proposedText, result])
+			rowsByBus[str(busName)] = busRows
+			if len(failures) == 0:
+				summaryByBus[str(busName)] = f"<b>{proposedKw:,.0f} kW at {busName}:</b> passes every limit that can be checked."
+			else:
+				summaryByBus[str(busName)] = f"<b>{proposedKw:,.0f} kW at {busName}:</b> FAIL. Caused by {', '.join(failures)}."
+	return {
+		"check_busNames": sorted(rowsByBus.keys()),
+		"check_rowsByBus": rowsByBus,
+		"check_summaryByBus": summaryByBus,
+		"check_limitHeadings": ["Limit", "Available Headroom", "Proposed", "Result"],
+	}
+
+
 def processOptimalUpgrades(results: dict) -> dict:
 	'''
 	Turns the decaf.optimal_upgrades result dict into tables and a figure for the HTML template.
+
 	'''
 	outData = {}
 	upgrades = results.get("upgrades", []) or []
@@ -403,6 +495,8 @@ def work(modelDir, inputDict: dict) -> dict:
 
 	runOptimalUpgrades = inputDict.get("runOptimalUpgrades", "on") == "on"
 	runProtectionAnalysis = inputDict.get("runProtectionAnalysis", "off") == "on"
+	# Stays None unless protection analysis runs, which is how the map knows whether to color
+	protectionAnalysisResults = None
 	pathToOmd = Path(modelDir, inputDict["feederName1"] + ".omd")
 	if runOptimalUpgrades or runProtectionAnalysis:
 		tree = opendss.dssConvert.omdToTree(pathToOmd)
@@ -420,9 +514,6 @@ def work(modelDir, inputDict: dict) -> dict:
 
 		outData.update( processOptimalUpgrades( json.load(open(optiUpgradesFile)) ) )
 
-		# Circuit map, built and read back the same way hostingCapacity does it
-		omf.geo.map_omd(pathToOmd, modelDir, open_browser=False)
-		outData['optUpg_circuitMap'] = open(Path(modelDir, 'geoJson_offline.html'), 'r').read()
 		upgradeAssetIds = [upgrade.get('asset_id') for upgrade in (optimalUpgradesResults.get('upgrades') or [])]
 		outData['optUpg_assetPairings'] = pairAssetsToCircuitObjects(pathToOmd, upgradeAssetIds)
 
@@ -436,6 +527,12 @@ def work(modelDir, inputDict: dict) -> dict:
 			is_single_file_model=1,
 		)
 		outData.update(processProtectionAnalysis(protectionAnalysisResults))
+		outData.update(buildSystemCheck(protectionAnalysisResults, inputDict))
+
+	# One circuit map for the whole page, shown whenever either analytic ran.
+	# Colored by protection analysis if they are there.
+	if runOptimalUpgrades or runProtectionAnalysis:
+		outData['circuitMap'] = buildCircuitMap(modelDir, pathToOmd, protectionAnalysisResults)
 
 	# Stdout/stderr.
 	outData["stdout"] = "Success"
@@ -480,7 +577,7 @@ def new(modelDir):
 		"siteID": "bus3131",
 		"targetHCMW": 1.20,
 		"runOptimalUpgrades": "on",
-		"runProtectionAnalysis": "off",
+		"runProtectionAnalysis": "on",
 		"protectionAnalysisUIDisplay": protectionAnalysisFileName,
 		"protectionAnalysisDataFileName": protectionAnalysisFileName
 	}
