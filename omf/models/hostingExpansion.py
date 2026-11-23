@@ -21,6 +21,7 @@ from omf import weather
 from omf.solvers import opendss
 from omf.solvers import pysam
 from omf.solvers import decaf_cl
+from omf.solvers import decaf_cl
 
 # Model metadata
 modelName, template = __neoMetaModel__.metadata(__file__)
@@ -582,6 +583,7 @@ def new(modelDir):
 		"protectionAnalysisDataFileName": protectionAnalysisFileName
 	}
 
+
 	creationCode = __neoMetaModel__.new(modelDir, defaultInputs)
 	# Copy files from the test directory ( or respective places ) and put them in the model for use
 	try:
@@ -615,7 +617,9 @@ def _tests():
 	# Pre-run.
 	__neoMetaModel__.renderAndShow(modelLoc)
 	# Run the model.
-	__neoMetaModel__.runForeground(modelLoc)
+	from unittest.mock import patch
+	with patch.object(weather, 'nlr_get_nsrdb_data', side_effect=weather._write_nsrdb_test_response):
+		__neoMetaModel__.runForeground(modelLoc)
 	# Show the output.
 	__neoMetaModel__.renderAndShow(modelLoc)
 

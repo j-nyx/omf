@@ -22,7 +22,10 @@
 		line 2: button for file upload, thats it.
 		line 3: the name of the file the user is using/inputting in. We wanna save this for display. Originally its set as the default.
 		line 4: This is hidden. This is the name of the file we want always = .csv name <- default naming convention
+		line 4: This is hidden. This is the name of the file we want always = .csv name <- default naming convention
 	-->
+	{% macro file_upload(fileInputID, userFileDisplayNameID, dataFileNameID, acceptType='.csv') -%}
+    <input type="file" id="{{fileInputID}}" name="{{ allInputDataDict[dataFileNameID] }}" accept="{{acceptType}}" class="fileButton" onchange="updateFileNameDisplay('{{fileInputID}}', '{{userFileDisplayNameID}}', '{{dataFileNameID}}')" style="display:none"><br>
 	{% macro file_upload(fileInputID, userFileDisplayNameID, dataFileNameID, acceptType='.csv') -%}
     <input type="file" id="{{fileInputID}}" name="{{ allInputDataDict[dataFileNameID] }}" accept="{{acceptType}}" class="fileButton" onchange="updateFileNameDisplay('{{fileInputID}}', '{{userFileDisplayNameID}}', '{{dataFileNameID}}')" style="display:none"><br>
     <label for="{{fileInputID}}" class="fileButton">Choose File</label>
@@ -106,6 +109,7 @@
 			</div>
 			<div class="shorterInput">
 				<label class="tooltip">year<span class="classic">1998-2024</span></label>
+				<label class="tooltip">year<span class="classic">1998-2024</span></label>
 				<input type="text" id="year" name="year" value="{{allInputDataDict.year}}" pattern="^(199(8|9)|20[0-2][0-4])$" required="required">
 			</div>
 			<div class="shorterInput">
@@ -121,13 +125,16 @@
 				<input type="text" id="systemCapacity" name="systemCapacity" value="{{allInputDataDict.systemCapacity}}" pattern="^[1-9]\d*$" required="required">
 			</div>
 			<div class="shorterInput">
+			<div class="shorterInput">
 				<label class="tooltip">Azimuth (degrees)<span class="classic">Cardinal direction the PV system will face. 180 in the northern hemisphere is due South.</span></label>
 				<input type="text" id="azimuth" name="azimuth" value="{{allInputDataDict.azimuth}}" pattern="^\d+\.?\d*$" required="required"/>
 			</div>
 			<div class="shorterInput">
+			<div class="shorterInput">
 				<label class="tooltip">Tilt (degrees)<span class="classic">The tilt of the solar panels measured as an angle in degrees between panels and ground. If '-' is entered, the latitude of the zipcode will be used.</span></label>
 				<input type="text" id="tilt" name="tilt" value="{{allInputDataDict.tilt}}" pattern="^(90|[1-8]\d|\d)?$|-" required="required"/>
 			</div>
+			<div class="shorterInput">
 			<div class="shorterInput">
 				<label class="tooltip">Losses<span class="classic">DC System Losses as %.</span></label>
 				<input type="text" id="losses" name="losses" value="{{allInputDataDict.losses}}" pattern="^\d+\.?\d*$" required="required"/>
@@ -434,3 +441,4 @@
 	</div>
 	{% endif %}
 </body>
+
