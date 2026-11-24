@@ -52,7 +52,7 @@ def get_incidence_matrix(model_fp):
     inc_matrix['pde_name'] = inc_pde_name.reset_index(drop=True)
 
     # addition to help with per phase graph
-    inc_matrix['bus_nodes'] = ''
+    inc_matrix['bus_nodes'] = pd.Series(None, index=inc_matrix.index, dtype=object)
     inc_matrix['n_bus_nodes'] = 0
     inc_matrix['kv_base'] = 0.0
 
