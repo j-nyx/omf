@@ -22,10 +22,7 @@
 		line 2: button for file upload, thats it.
 		line 3: the name of the file the user is using/inputting in. We wanna save this for display. Originally its set as the default.
 		line 4: This is hidden. This is the name of the file we want always = .csv name <- default naming convention
-		line 4: This is hidden. This is the name of the file we want always = .csv name <- default naming convention
 	-->
-	{% macro file_upload(fileInputID, userFileDisplayNameID, dataFileNameID, acceptType='.csv') -%}
-    <input type="file" id="{{fileInputID}}" name="{{ allInputDataDict[dataFileNameID] }}" accept="{{acceptType}}" class="fileButton" onchange="updateFileNameDisplay('{{fileInputID}}', '{{userFileDisplayNameID}}', '{{dataFileNameID}}')" style="display:none"><br>
 	{% macro file_upload(fileInputID, userFileDisplayNameID, dataFileNameID, acceptType='.csv') -%}
     <input type="file" id="{{fileInputID}}" name="{{ allInputDataDict[dataFileNameID] }}" accept="{{acceptType}}" class="fileButton" onchange="updateFileNameDisplay('{{fileInputID}}', '{{userFileDisplayNameID}}', '{{dataFileNameID}}')" style="display:none"><br>
     <label for="{{fileInputID}}" class="fileButton">Choose File</label>
